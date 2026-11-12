@@ -4,3 +4,7 @@ __pycache__/
 .DS_Store
 .env
 media/tts/
+
+# Böyük video faylları git-ə düşməsin
+media/*.mp4
+media/*.mov
