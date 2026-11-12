@@ -9,12 +9,14 @@ Hissə 1: skelet
 Hissə 2: səs (edge-tts), səs səhifədə çalınır
 Hissə 3: AI beyin (Gemini), süzgəc və növbə
 Hissə 4: TikTok canlı yayınına qoşulma
+Video studiyası: robotun cavablarını TikTok üçün MP4 videoya yazır
 """
 
 import asyncio
 import json
 import logging
 import os
+import shutil
 import time
 import uuid
 from pathlib import Path
@@ -31,6 +33,7 @@ load_dotenv(BASE_DIR / ".env")
 WEB_DIR = BASE_DIR / "web"
 MEDIA_DIR = BASE_DIR / "media"
 TTS_DIR = MEDIA_DIR / "tts"
+CLIPS_DIR = MEDIA_DIR / "clips"
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("PORT", 8080))
@@ -54,6 +57,11 @@ class Hub:
         self.ready: asyncio.Queue[tuple] = asyncio.Queue(maxsize=1)
         # Robot səhifəsi səsi bitirəndə "speak_done" göndərir; onu burada gözləyirik
         self.pending: dict[str, asyncio.Event] = {}
+        # Eyni anda yalnız bir danışıq (canlı cavab və ya video yazısı)
+        self.speak_lock = asyncio.Lock()
+        # Video studiyası
+        self.clip_queue: asyncio.Queue[dict] = asyncio.Queue()
+        self.clip_waiters: dict[str, asyncio.Future] = {}
         # TikTok
         self.tiktok_status = {"type": "tiktok_status", "state": "stopped", "detail": "", "username": ""}
         self.tiktok = TikTokSource(
@@ -120,7 +128,8 @@ class Hub:
         while True:
             comment, reply, filename, duration = await self.ready.get()
             try:
-                await self.play(reply, filename, duration, comment)
+                async with self.speak_lock:
+                    await self.play(reply, filename, duration, comment)
             except Exception:
                 log.exception("Cavab səsləndirilə bilmədi")
             await asyncio.sleep(0.4)  # cavablar arasında kiçik fasilə
@@ -154,6 +163,52 @@ class Hub:
         finally:
             self.pending.pop(speak_id, None)
 
+    # ---------- Video studiyası ----------
+
+    async def add_clip(self, question: str, user: str) -> None:
+        job = {"id": uuid.uuid4().hex, "question": question, "user": user}
+        await self.clip_status(job, "queued")
+        self.clip_queue.put_nowait(job)
+
+    async def clip_status(self, job: dict, state: str, **extra) -> None:
+        await self.broadcast({"type": "clip_status", "id": job["id"], "question": job["question"], "state": state, **extra})
+
+    async def clip_worker(self) -> None:
+        while True:
+            job = await self.clip_queue.get()
+            try:
+                await self.make_clip(job)
+            except Exception as err:
+                log.exception("Video yazıla bilmədi")
+                await self.clip_status(job, "error", detail=str(err)[:120])
+
+    async def make_clip(self, job: dict) -> None:
+        await self.clip_status(job, "thinking")
+        reply = await self.brain.reply(job["user"] or "", job["question"])
+        if not reply:
+            await self.clip_status(job, "error", detail="AI cavab vermədi")
+            return
+        filename, duration = await self.tts.synthesize(reply)
+        future = asyncio.get_running_loop().create_future()
+        self.clip_waiters[job["id"]] = future
+        async with self.speak_lock:
+            await self.clip_status(job, "recording", text=reply)
+            await self.broadcast({
+                "type": "clip", "id": job["id"], "user": job["user"] or "izləyici",
+                "question": job["question"], "text": reply, "audio": f"/media/tts/{filename}",
+            })
+            try:
+                raw: Path = await asyncio.wait_for(future, timeout=duration + 30)
+            except TimeoutError:
+                await self.clip_status(job, "error", detail="Robot səhifəsi cavab vermədi (açıqdır? səs aktivdir?)")
+                return
+            finally:
+                self.clip_waiters.pop(job["id"], None)
+        await self.clip_status(job, "converting", text=reply)
+        final = await convert_to_mp4(raw)
+        log.info("🎬 Video hazırdır: %s", final.name)
+        await self.clip_status(job, "ready", text=reply, url=f"/media/clips/{final.name}", name=final.name)
+
     def speak_done(self, speak_id: str) -> None:
         event = self.pending.get(speak_id)
         if event:
@@ -184,6 +239,16 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                     hub.add_comment(user, text)
             elif kind == "speak_done":
                 hub.speak_done(str(data.get("id", "")))
+            elif kind == "clip_request":
+                user = str(data.get("user") or "").strip()[:40]
+                for q in str(data.get("questions") or "").splitlines():
+                    q = q.strip()[:200]
+                    if q:
+                        await hub.add_clip(q, user)
+            elif kind == "clip_error":
+                fut = hub.clip_waiters.get(str(data.get("id", "")))
+                if fut and not fut.done():
+                    fut.set_exception(RuntimeError(str(data.get("detail") or "səhifədə xəta")))
             elif kind == "tiktok_connect":
                 username = str(data.get("username") or "").strip()[:60]
                 log.info("TikTok hesabı: %s", username or "(dayandırıldı)")
@@ -194,6 +259,44 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+async def convert_to_mp4(raw: Path) -> Path:
+    """Brauzerin yazdığı videonu TikTok üçün standart MP4-ə (H.264 + AAC) çevirir."""
+    ffmpeg = shutil.which("ffmpeg") or ("/opt/homebrew/bin/ffmpeg" if Path("/opt/homebrew/bin/ffmpeg").exists() else None)
+    if not ffmpeg:
+        log.warning("ffmpeg tapılmadı, video olduğu kimi saxlanılır: %s", raw.name)
+        return raw
+    out = raw.with_name(raw.stem + "_tiktok.mp4")
+    proc = await asyncio.create_subprocess_exec(
+        ffmpeg, "-y", "-loglevel", "error", "-i", str(raw),
+        "-vf", "scale=1080:1920,fps=30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+        "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart", str(out),
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+    )
+    _, err = await proc.communicate()
+    if proc.returncode != 0 or not out.exists():
+        log.warning("ffmpeg xətası: %s", err.decode(errors="ignore")[:300])
+        return raw
+    raw.unlink(missing_ok=True)
+    return out
+
+
+async def clip_upload(request: web.Request) -> web.Response:
+    """Robot səhifəsi yazdığı videonu bura göndərir."""
+    hub: Hub = request.app["hub"]
+    clip_id = request.query.get("id", "")
+    ext = "mp4" if "mp4" in (request.content_type or "") else "webm"
+    data = await request.read()
+    CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+    raw = CLIPS_DIR / f"{time.strftime('%Y%m%d_%H%M%S')}_{clip_id[:4]}.{ext}"
+    future = hub.clip_waiters.get(clip_id)
+    if not future or future.done():
+        return web.json_response({"ok": False, "reason": "gözlənilmir"})  # məsələn, ikinci açıq tab
+    raw.write_bytes(data)
+    future.set_result(raw)
+    log.info("Video qəbul edildi: %s (%.1f MB)", raw.name, len(data) / 1e6)
+    return web.json_response({"ok": True})
+
+
 def page(filename: str):
     async def handler(request: web.Request) -> web.FileResponse:
         return web.FileResponse(WEB_DIR / filename)
@@ -202,7 +305,8 @@ def page(filename: str):
 
 async def on_startup(app: web.Application) -> None:
     hub: Hub = app["hub"]
-    app["tasks"] = [asyncio.create_task(hub.preparer()), asyncio.create_task(hub.speaker())]
+    app["tasks"] = [asyncio.create_task(hub.preparer()), asyncio.create_task(hub.speaker()),
+                    asyncio.create_task(hub.clip_worker())]
     # .env-də TIKTOK_USERNAME varsa, avtomatik qoşul
     if os.environ.get("TIKTOK_USERNAME"):
         hub.tiktok.set_username(os.environ["TIKTOK_USERNAME"])
@@ -216,11 +320,12 @@ async def on_cleanup(app: web.Application) -> None:
 
 def create_app() -> web.Application:
     MEDIA_DIR.mkdir(exist_ok=True)
-    app = web.Application()
+    app = web.Application(client_max_size=300 * 1024 * 1024)  # video yükləmələri üçün
     app["hub"] = Hub()
     app.router.add_get("/", page("robot.html"))
     app.router.add_get("/control", page("control.html"))
     app.router.add_get("/ws", ws_handler)
+    app.router.add_post("/clip_upload", clip_upload)
     app.router.add_static("/media/", MEDIA_DIR)
     app.router.add_static("/static/", WEB_DIR)
     app.on_startup.append(on_startup)

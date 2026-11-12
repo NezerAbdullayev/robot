@@ -111,7 +111,7 @@
 
   // ---------- Səs + analiz (robotun ağzı və başı bundan istifadə edir) ----------
   const audio = new Audio();
-  let actx, analyser, freq;
+  let actx, analyser, freq, recDest;
   window.robotAudio = { level: 0, bands: [], speaking: false };
   const BAND_COUNT = 17;
 
@@ -124,6 +124,8 @@
     analyser.smoothingTimeConstant = 0.55;
     src.connect(analyser);
     analyser.connect(actx.destination);
+    recDest = actx.createMediaStreamDestination(); // video yazısı üçün səs
+    analyser.connect(recDest);
     freq = new Uint8Array(analyser.frequencyBinCount);
   }
 
@@ -166,7 +168,7 @@
   }, 60);
 
   // ---------- Şərh və subtitr ----------
-  let commentTimer, subtitleTimer, currentId = null, ws;
+  let commentTimer, subtitleTimer, currentId = null, ws, speakResolve = null;
 
   function showComment(user, text) {
     commentEl.innerHTML = "";
@@ -184,6 +186,7 @@
     subtitleTimer = setTimeout(() => subtitleEl.classList.remove("show"), 1200);
     if (currentId && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "speak_done", id: currentId }));
     currentId = null;
+    if (speakResolve) { speakResolve(); speakResolve = null; }
   }
 
   audio.addEventListener("playing", () => { window.robotAudio.speaking = true; });
@@ -215,8 +218,142 @@
     if (actx.state !== "running") setTimeout(() => actx.resume(), 300); // bəzən ikinci cəhd lazım olur
   });
 
+  // ---------- Video yazma (Video studiyası) ----------
+  // Görüntü (android + şərh + subtitr + effektlər) 1080x1920 kətana çəkilir, səs ilə birlikdə yazılır.
+  const REC_W = 1080, REC_H = 1920;
+  const recCanvas = document.createElement("canvas");
+  recCanvas.width = REC_W; recCanvas.height = REC_H;
+  const rctx = recCanvas.getContext("2d");
+  let recording = false;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function recMime() {
+    const types = ["video/mp4;codecs=avc1.640028,mp4a.40.2", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm"];
+    return types.find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+  }
+
+  function wrapLines(ctx, text, maxW) {
+    const words = text.split(/\s+/), lines = [];
+    let line = "";
+    for (const w of words) {
+      const test = line ? line + " " + w : w;
+      if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; } else line = test;
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill();
+  }
+
+  function drawRecFrame(t) {
+    const c = rctx;
+    c.save();
+    c.fillStyle = "#000"; c.fillRect(0, 0, REC_W, REC_H);
+    // Kamera "nəfəsi" (səhifədəki drift kimi)
+    const sc = 1.03 + 0.003 * Math.sin(t * 0.37);
+    c.translate(REC_W / 2 + Math.sin(t * 0.21) * 3, REC_H / 2 + Math.sin(t * 0.17) * 2);
+    c.scale(sc, sc);
+    c.translate(-REC_W / 2, -REC_H / 2);
+    const H = REC_W * 1024 / 572, y0 = (REC_H - H) / 2;
+    const room = document.getElementById("room");
+    if (!room.hidden) c.drawImage(room, 0, y0, REC_W, H);
+    const src = document.querySelector("#android:not([hidden]), #robot3d:not([hidden])");
+    if (src) c.drawImage(src, 0, y0, REC_W, H);
+    // Lampa işığı
+    c.globalCompositeOperation = "screen";
+    c.globalAlpha = Number(lampEl.style.opacity || 0.85);
+    const lx = REC_W * 0.11, ly = y0 + H * 0.33;
+    const lg = c.createRadialGradient(lx, ly, 0, lx, ly, REC_W * 0.18);
+    lg.addColorStop(0, "rgba(255,210,150,.35)"); lg.addColorStop(1, "rgba(255,180,90,0)");
+    c.fillStyle = lg; c.fillRect(lx - 300, ly - 300, 600, 600);
+    c.restore();
+    // Vignette
+    const vg = c.createRadialGradient(REC_W / 2, REC_H * 0.45, REC_H * 0.3, REC_W / 2, REC_H * 0.45, REC_H * 0.62);
+    vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,.35)");
+    c.fillStyle = vg; c.fillRect(0, 0, REC_W, REC_H);
+    // Film grain
+    c.save(); c.globalCompositeOperation = "overlay"; c.globalAlpha = 0.07;
+    c.imageSmoothingEnabled = false;
+    c.drawImage(document.getElementById("grain"), 0, 0, REC_W, REC_H);
+    c.restore();
+    // Şərh qabarcığı
+    if (commentEl.classList.contains("show")) {
+      const name = commentEl.querySelector("b")?.textContent || "";
+      const text = commentEl.textContent.slice(name.length);
+      c.font = "600 44px -apple-system, 'Segoe UI', Roboto, sans-serif";
+      const lines = wrapLines(c, name + text, REC_W * 0.92 - 80);
+      const bh = 40 + lines.length * 56;
+      c.fillStyle = "rgba(0,0,0,.55)"; roundRect(c, REC_W * 0.04, REC_H * 0.06, REC_W * 0.92, bh, 36);
+      lines.forEach((ln, i) => {
+        const y = REC_H * 0.06 + 64 + i * 56, x = REC_W * 0.04 + 40;
+        if (i === 0 && ln.startsWith(name)) {
+          c.fillStyle = "#ffd33d"; c.fillText(name, x, y);
+          c.fillStyle = "#fff"; c.fillText(ln.slice(name.length), x + c.measureText(name).width, y);
+        } else { c.fillStyle = "#fff"; c.fillText(ln, x, y); }
+      });
+    }
+    // Subtitr
+    if (subtitleEl.classList.contains("show") && subtitleEl.textContent) {
+      c.font = "800 72px -apple-system, 'Segoe UI', Roboto, sans-serif";
+      c.textAlign = "center";
+      const lines = wrapLines(c, subtitleEl.textContent, REC_W * 0.86);
+      const base = REC_H * 0.87 - (lines.length - 1) * 90;
+      lines.forEach((ln, i) => {
+        c.lineWidth = 10; c.strokeStyle = "rgba(0,0,0,.85)"; c.lineJoin = "round";
+        c.strokeText(ln, REC_W / 2, base + i * 90);
+        c.fillStyle = "#fff"; c.fillText(ln, REC_W / 2, base + i * 90);
+      });
+      c.textAlign = "start";
+    }
+  }
+
+  function recLoop(now) {
+    if (!recording) return;
+    drawRecFrame(now / 1000);
+    requestAnimationFrame(recLoop);
+  }
+
+  async function doClip(msg) {
+    try {
+      initAudio();
+      if (actx.state !== "running") await actx.resume();
+      if (actx.state !== "running") { unlockEl.classList.add("show"); throw new Error("Səs bloklanıb: robot səhifəsinə bir dəfə klikləyin"); }
+      const mime = recMime();
+      if (!mime) throw new Error("Brauzer video yazmağı dəstəkləmir");
+      recording = true;
+      requestAnimationFrame(recLoop);
+      const stream = new MediaStream([...recCanvas.captureStream(30).getVideoTracks(), ...recDest.stream.getAudioTracks()]);
+      const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 160_000 });
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      const stopped = new Promise((r) => (recorder.onstop = r));
+      recorder.start(250);
+
+      await sleep(700);
+      showComment(msg.user, msg.question);       // sual ekranda görünür, robot ona baxır
+      await sleep(1300);
+      const spoken = new Promise((r) => (speakResolve = r));
+      await speak(msg);                           // robot cavab verir
+      await spoken;
+      await sleep(1300);
+
+      recorder.stop();
+      await stopped;
+      recording = false;
+      stream.getTracks().forEach((tr) => tr.stop());
+      const blob = new Blob(chunks, { type: mime.split(";")[0] });
+      await fetch(`/clip_upload?id=${encodeURIComponent(msg.id)}`, { method: "POST", body: blob, headers: { "Content-Type": blob.type } });
+    } catch (err) {
+      recording = false;
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "clip_error", id: msg.id, detail: String(err.message || err) }));
+    }
+  }
+
   function handle(msg) {
     switch (msg.type) {
+      case "clip": doClip(msg); break;
       case "comment": showComment(msg.user, msg.text); break;
       case "speak": speak(msg); break;
       case "speak_end": if (msg.id === currentId) { audio.pause(); stopTalking(); } break;

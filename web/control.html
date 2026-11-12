@@ -20,6 +20,14 @@
   button.secondary { background: #eaeef2; color: #1f2328; }
   #tt-status { margin-top: 12px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
   #tt-dot { width: 10px; height: 10px; border-radius: 50%; background: #8c959f; flex: none; }
+  textarea { width: 100%; box-sizing: border-box; padding: 10px; font-size: 15px; border: 1px solid #d0d7de; border-radius: 8px; font-family: inherit; resize: vertical; }
+  .hint { font-size: 13px; color: #59636e; margin: 6px 0 0; }
+  #clips { list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 8px; }
+  #clips li { border: 1px solid #d0d7de; border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+  #clips .q { font-weight: 600; }
+  #clips .a { color: #59636e; margin-top: 2px; }
+  #clips .st { font-size: 13px; margin-top: 6px; }
+  #clips a { color: #1f6feb; font-weight: 600; }
   #tt-dot.live { background: #2ea043; } #tt-dot.wait { background: #d4a72c; } #tt-dot.err { background: #da3633; }
 </style>
 </head>
@@ -32,6 +40,18 @@
     <button type="button" id="tt-stop" class="secondary">Dayandır</button>
   </form>
   <div id="tt-status"><span id="tt-dot"></span><span id="tt-text">Qoşulmayıb</span></div>
+</div>
+<div class="card">
+  <h1>Video studiyası (TikTok üçün qısa videolar)</h1>
+  <form id="studio">
+    <label for="st-user">Sualı verən (ekranda görünəcək ad, robot da bu adla müraciət edəcək)</label>
+    <input id="st-user" placeholder="məsələn: Nezer (boş qala bilər)">
+    <label for="st-q">Suallar (hər sətirdə bir sual = bir video)</label>
+    <textarea id="st-q" rows="5" placeholder="Sən kimsən?&#10;Robotlar yuxu görür?&#10;Ən sevdiyin yemək nədir?"></textarea>
+    <button type="submit">Videoları yaz</button>
+    <p class="hint">Yazı zamanı robot səhifəsi (127.0.0.1:8080) açıq və <b>görünən</b> pəncərədə olmalıdır (arxa planda olan tab-da video donur). Səs üçün robot səhifəsinə bir dəfə klikləyin.</p>
+  </form>
+  <ul id="clips"></ul>
 </div>
 <div class="card">
   <h1>Test paneli (saxta şərh)</h1>
@@ -56,7 +76,11 @@
   function connect() {
     ws = new WebSocket(`ws://${location.host}/ws`);
     ws.onopen = () => log.textContent = "Serverə qoşuldu ✓";
-    ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.type === "tiktok_status") showTikTok(m); };
+    ws.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.type === "tiktok_status") showTikTok(m);
+      if (m.type === "clip_status") showClip(m);
+    };
     ws.onclose = () => { log.textContent = "Bağlantı kəsildi, yenidən qoşulur…"; setTimeout(connect, 1000); };
   }
   connect();
@@ -73,6 +97,36 @@
     send(input.value.trim());
     input.value = "";
   };
+  // ---------- Video studiyası ----------
+  const CLIP_STATES = {
+    queued: "⏳ Növbədə", thinking: "🤔 AI cavab hazırlayır…", recording: "🔴 Yazılır…",
+    converting: "⚙️ MP4-ə çevrilir…", ready: "✅ Hazırdır", error: "⚠️ Xəta",
+  };
+  function showClip(m) {
+    let li = document.getElementById("clip-" + m.id);
+    if (!li) {
+      li = document.createElement("li"); li.id = "clip-" + m.id;
+      li.innerHTML = '<div class="q"></div><div class="a"></div><div class="st"></div>';
+      document.getElementById("clips").prepend(li);
+    }
+    li.querySelector(".q").textContent = "❓ " + m.question;
+    if (m.text) li.querySelector(".a").textContent = "🤖 " + m.text;
+    const st = li.querySelector(".st");
+    st.textContent = (CLIP_STATES[m.state] || m.state) + (m.detail ? ": " + m.detail : "") + " ";
+    if (m.state === "ready" && m.url) {
+      const a = document.createElement("a");
+      a.href = m.url; a.download = m.name; a.textContent = "⬇ Yüklə (" + m.name + ")";
+      st.append(a);
+    }
+  }
+  document.getElementById("studio").onsubmit = (e) => {
+    e.preventDefault();
+    const questions = document.getElementById("st-q").value.trim();
+    if (!questions || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ type: "clip_request", user: document.getElementById("st-user").value.trim(), questions }));
+    document.getElementById("st-q").value = "";
+  };
+
   // ---------- TikTok ----------
   const STATES = {
     stopped:    ["", "Qoşulmayıb"],

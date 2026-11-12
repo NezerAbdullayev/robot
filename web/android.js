@@ -82,7 +82,7 @@ function loadImage(src) {
 
 // ---------------------------------------------------------------- başlanğıc
 export async function startAndroid(canvas, stage) {
-  const gl = canvas.getContext("webgl2", { antialias: false, premultipliedAlpha: false });
+  const gl = canvas.getContext("webgl2", { antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: true });
   if (!gl) throw new Error("WebGL2 yoxdur");
 
   const sh = (type, src) => {
