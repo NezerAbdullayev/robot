@@ -1,0 +1,5 @@
+# Bu sözlərdən biri şərhdə və ya robotun cavabında olsa, atılır.
+# Hər sətirdə bir söz və ya ifadə. Kiçik hərflə yaz. "#" ilə başlayan sətirlər nəzərə alınmır.
+# Söyüşləri və istəmədiyin sözləri bura əlavə et.
+http
+www.

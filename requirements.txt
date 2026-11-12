@@ -1,2 +1,4 @@
 aiohttp
 edge-tts
+google-genai
+python-dotenv

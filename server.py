@@ -7,25 +7,34 @@ AI Robot canlı yayın serveri.
 
 Hissə 1: skelet
 Hissə 2: səs (edge-tts), səs səhifədə çalınır
+Hissə 3: AI beyin (Gemini), süzgəc və növbə
 """
 
 import asyncio
 import json
 import logging
+import os
+import time
 import uuid
 from pathlib import Path
 
 from aiohttp import web, WSMsgType
+from dotenv import load_dotenv
 
+from brain import Brain
 from tts import TTS
 
 BASE_DIR = Path(__file__).parent
+load_dotenv(BASE_DIR / ".env")
 WEB_DIR = BASE_DIR / "web"
 MEDIA_DIR = BASE_DIR / "media"
 TTS_DIR = MEDIA_DIR / "tts"
 
 HOST = "127.0.0.1"
-PORT = 8080
+PORT = int(os.environ.get("PORT", 8080))
+
+QUEUE_SIZE = 5        # növbədə ən çox bu qədər şərh; dolanda ən köhnəsi atılır
+MAX_COMMENT_AGE = 30  # bundan köhnə şərhə cavab verilmir (saniyə)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("robot")
@@ -36,8 +45,11 @@ class Hub:
 
     def __init__(self) -> None:
         self.clients: set[web.WebSocketResponse] = set()
-        self.queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=20)
+        self.queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=QUEUE_SIZE)
         self.tts = TTS(TTS_DIR)
+        self.brain = Brain(BASE_DIR)
+        # Səsi hazır olan cavablar (1 ədəd əvvəlcədən hazırlanır)
+        self.ready: asyncio.Queue[tuple] = asyncio.Queue(maxsize=1)
         # Robot səhifəsi səsi bitirəndə "speak_done" göndərir; onu burada gözləyirik
         self.pending: dict[str, asyncio.Event] = {}
 
@@ -50,28 +62,51 @@ class Hub:
                 self.clients.discard(ws)
 
     def add_comment(self, user: str, text: str) -> None:
-        if self.queue.full():
-            log.info("Növbə doludur, şərh atıldı: %s: %s", user, text)
+        reason = self.brain.accept_comment(user, text)
+        if reason:
+            log.info("Atıldı (%s): %s: %s", reason, user, text)
             return
-        self.queue.put_nowait({"user": user, "text": text})
+        if self.queue.full():
+            dropped = self.queue.get_nowait()  # təzə şərhlər daha maraqlıdır
+            log.info("Növbə dolu, köhnə şərh atıldı: %s", dropped["text"])
+        self.queue.put_nowait({"user": user, "text": text, "time": time.time()})
 
-    async def worker(self) -> None:
-        """Növbədən bir-bir şərh götürür və robotu 'danışdırır'."""
+    async def preparer(self) -> None:
+        """Növbədən şərh götürür, AI cavabını və səsini HAZIRLAYIR.
+        Robot bir cavabı deyərkən növbəti cavab artıq hazırlanır."""
         while True:
             comment = await self.queue.get()
+            if time.time() - comment["time"] > MAX_COMMENT_AGE:
+                log.info("Köhnə şərh keçildi: %s", comment["text"])
+                continue
             log.info("Şərh: %s: %s", comment["user"], comment["text"])
-
-            # Hələ AI yoxdur (Hissə 3), robot şərhi sadəcə təkrarlayır.
-            reply = comment["text"]
             try:
-                await self.say(reply, comment)
+                reply = await self.brain.reply(comment["user"], comment["text"])
+                if not reply:
+                    log.info("AI cavab vermədi (SKIP və ya xəta)")
+                    continue
+                filename, duration = await self.tts.synthesize(reply)
+                await self.ready.put((comment, reply, filename, duration))
             except Exception:
-                log.exception("Cavab verilə bilmədi")
-            await asyncio.sleep(0.5)  # cavablar arasında kiçik fasilə
+                log.exception("Cavab hazırlana bilmədi")
 
-    async def say(self, text: str, comment: dict | None = None) -> None:
-        """Mətni səsləndirir və robot səsi bitirənə qədər gözləyir."""
+    async def speaker(self) -> None:
+        """Hazır cavabları bir-bir robota dedirir."""
+        while True:
+            comment, reply, filename, duration = await self.ready.get()
+            try:
+                await self.play(reply, filename, duration, comment)
+            except Exception:
+                log.exception("Cavab səsləndirilə bilmədi")
+            await asyncio.sleep(0.4)  # cavablar arasında kiçik fasilə
+
+    async def say(self, text: str) -> None:
+        """Növbədən kənar birbaşa danışmaq üçün (məsələn, salamlama)."""
         filename, duration = await self.tts.synthesize(text)
+        await self.play(text, filename, duration)
+
+    async def play(self, text: str, filename: str, duration: float, comment: dict | None = None) -> None:
+        """Hazır səsi robot səhifəsində çalır və bitənə qədər gözləyir."""
         speak_id = uuid.uuid4().hex
         done = asyncio.Event()
         self.pending[speak_id] = done
@@ -136,11 +171,13 @@ def page(filename: str):
 
 
 async def on_startup(app: web.Application) -> None:
-    app["worker"] = asyncio.create_task(app["hub"].worker())
+    hub: Hub = app["hub"]
+    app["tasks"] = [asyncio.create_task(hub.preparer()), asyncio.create_task(hub.speaker())]
 
 
 async def on_cleanup(app: web.Application) -> None:
-    app["worker"].cancel()
+    for task in app["tasks"]:
+        task.cancel()
 
 
 def create_app() -> web.Application:
