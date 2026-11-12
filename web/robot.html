@@ -7,13 +7,11 @@
   /* 9:16 şaquli kadr (TikTok). OBS-də 1080x1920 ölçüsü verilir. */
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
 
-  /* Səhnə: şəkil + üstündəki effektlər eyni koordinatlarda (şəkil 572x1024) */
+  /* Səhnə: fon şəkli (572x1024 nisbəti) + üstündə 3D robot */
   #stage { position: absolute; left: 50%; top: 50%; aspect-ratio: 572 / 1024;
     width: max(100vw, calc(100vh * 572 / 1024)); transform: translate(-50%, -50%); }
   #camera { position: absolute; inset: 0; animation: drift 17s ease-in-out infinite; }
-  #photo { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-  #fx { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-  #fx .glow { mix-blend-mode: screen; }
+  #room, #robot3d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
   /* Ştativdəki telefonun çox yüngül "nəfəs alması" */
   @keyframes drift {
@@ -24,16 +22,20 @@
     100% { transform: scale(1.03) translate(0, 0) rotate(0deg); }
   }
 
+  /* Lampa işığının zəif titrəməsi */
+  #lamp { position: absolute; left: -5%; top: 22%; width: 32%; height: 22%; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(ellipse, rgba(255,210,150,.35), rgba(255,180,90,0) 70%); mix-blend-mode: screen; }
+
   /* Fincandan qalxan buxar */
-  .steam { position: absolute; left: 16.6%; top: 73%; width: 3.5%; height: 8%; pointer-events: none; }
+  .steam { position: absolute; left: 15.5%; top: 70%; width: 4%; height: 8%; pointer-events: none; }
   .steam i { position: absolute; bottom: 0; left: 20%; width: 60%; height: 40%; border-radius: 50%;
-    background: radial-gradient(ellipse, rgba(255,255,255,.35), rgba(255,255,255,0) 70%);
+    background: radial-gradient(ellipse, rgba(255,255,255,.3), rgba(255,255,255,0) 70%);
     filter: blur(3px); opacity: 0; animation: rise 4.5s ease-out infinite; }
   .steam i:nth-child(2) { animation-delay: 1.5s; left: 5%; }
   .steam i:nth-child(3) { animation-delay: 3s; left: 35%; }
   @keyframes rise {
-    0%   { transform: translateY(0) scale(.6) translateX(0); opacity: 0; }
-    20%  { opacity: .55; }
+    0%   { transform: translateY(0) scale(.6); opacity: 0; }
+    20%  { opacity: .5; }
     100% { transform: translateY(-160%) scale(1.6) translateX(30%); opacity: 0; }
   }
 
@@ -62,68 +64,17 @@
   #status { position: absolute; right: 8px; bottom: 8px; width: 10px; height: 10px; border-radius: 50%; background: #da3633; }
   #status.ok { background: #2ea043; }
 </style>
+<script type="importmap">
+  { "imports": { "three": "/static/vendor/three.module.min.js", "three/addons/": "/static/vendor/jsm/" } }
+</script>
 </head>
 <body>
 <div id="stage">
   <div id="camera">
-    <img id="photo" src="/static/assets/robot_bg.jpg" alt="">
-
-    <!-- Effektlər şəklin öz piksel koordinatlarında (572x1024) -->
-    <svg id="fx" viewBox="0 0 572 1024" preserveAspectRatio="none">
-      <defs>
-        <radialGradient id="eyeGlow">
-          <stop offset="0" stop-color="#ffffff" stop-opacity="1"/>
-          <stop offset=".35" stop-color="#bfe3ff" stop-opacity=".85"/>
-          <stop offset=".75" stop-color="#4aa8ff" stop-opacity=".35"/>
-          <stop offset="1" stop-color="#4aa8ff" stop-opacity="0"/>
-        </radialGradient>
-        <radialGradient id="lampGlow">
-          <stop offset="0" stop-color="#ffd9a0" stop-opacity=".55"/>
-          <stop offset="1" stop-color="#ffb347" stop-opacity="0"/>
-        </radialGradient>
-        <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stop-color="#9fd4ff"/>
-          <stop offset=".5" stop-color="#ffffff"/>
-          <stop offset="1" stop-color="#9fd4ff"/>
-        </linearGradient>
-        <filter id="blur1" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.2"/></filter>
-        <filter id="blur3" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
-        <!-- Ağız barmaqlığının forması -->
-        <clipPath id="mesh">
-          <path d="M223,434 L361,434 C361,451 347,470 292,470 C237,470 223,451 223,434 Z"/>
-        </clipPath>
-        <!-- Barmaqlığın dəlikləri (LED işığının üstündə qalsın deyə) -->
-        <pattern id="holes" width="2.6" height="2.6" patternUnits="userSpaceOnUse">
-          <path d="M0,0H2.6V2.6H0Z M1.3,.45 a.85,.85 0 1,0 .001,0 Z" fill="#000" fill-opacity=".55" fill-rule="evenodd"/>
-        </pattern>
-      </defs>
-
-      <!-- Lampa işığının titrəməsi -->
-      <circle id="lamp" class="glow" cx="60" cy="325" r="85" fill="url(#lampGlow)" opacity=".5"/>
-
-      <!-- Gözlər -->
-      <g id="eyes">
-        <circle class="glow eye" cx="254" cy="382.5" r="22" fill="url(#eyeGlow)" opacity=".35"/>
-        <circle class="glow eye" cx="330" cy="382.5" r="22" fill="url(#eyeGlow)" opacity=".35"/>
-        <!-- Göz qırpanda LED-lər sönür -->
-        <circle class="lid" cx="254" cy="382.5" r="15.5" fill="#141b24" opacity="0"/>
-        <circle class="lid" cx="330" cy="382.5" r="15.5" fill="#141b24" opacity="0"/>
-      </g>
-
-      <!-- Ağız: barmaqlığın arxasındakı LED ekvalayzer + kənar işıq -->
-      <g id="mouth">
-        <path id="rim" class="glow" d="M216,431 L368,431 C368,452 352,477 292,477 C232,477 216,452 216,431 Z"
-              fill="none" stroke="#8fd0ff" stroke-width="3" filter="url(#blur1)" opacity=".2"/>
-        <g clip-path="url(#mesh)">
-          <g id="bars" class="glow" filter="url(#blur1)"></g>
-          <rect x="216" y="430" width="152" height="48" fill="url(#holes)"/>
-        </g>
-        <path id="mouthBloom" class="glow" d="M223,434 L361,434 C361,451 347,470 292,470 C237,470 223,451 223,434 Z"
-              fill="#5fb6ff" filter="url(#blur3)" opacity="0"/>
-      </g>
-    </svg>
-
+    <img id="room" src="/static/assets/room_bg.jpg" alt="">
+    <div id="lamp"></div>
     <div class="steam"><i></i><i></i><i></i></div>
+    <canvas id="robot3d"></canvas>
   </div>
   <canvas id="grain" width="180" height="320"></canvas>
   <div id="vignette"></div>
@@ -134,37 +85,23 @@
 <div id="unlock">🔊 Səsi aktivləşdirmək üçün klikləyin</div>
 <div id="status" title="Serverə qoşulma"></div>
 
+<script type="module">
+  import { startRobot } from "/static/robot3d.js";
+  startRobot(document.getElementById("robot3d"), document.getElementById("stage"));
+</script>
+
 <script>
-  const body = document.body;
   const commentEl = document.getElementById("comment");
   const subtitleEl = document.getElementById("subtitle");
   const statusEl = document.getElementById("status");
   const unlockEl = document.getElementById("unlock");
-  const SVGNS = "http://www.w3.org/2000/svg";
+  const robot = () => window.robot; // 3D modul yüklənəndən sonra mövcud olur
 
-  // ---------- Ağız LED-ləri (ekvalayzer) ----------
-  const BAR_COUNT = 15, X0 = 224, X1 = 360, MID = 451;
-  const barsG = document.getElementById("bars");
-  const bars = [];
-  for (let i = 0; i < BAR_COUNT; i++) {
-    const r = document.createElementNS(SVGNS, "rect");
-    const step = (X1 - X0) / BAR_COUNT;
-    r.setAttribute("x", (X0 + i * step + step * 0.18).toFixed(2));
-    r.setAttribute("width", (step * 0.64).toFixed(2));
-    r.setAttribute("rx", 1.5);
-    r.setAttribute("fill", "url(#barGrad)");
-    barsG.appendChild(r);
-    bars.push(r);
-  }
-  const rim = document.getElementById("rim");
-  const bloom = document.getElementById("mouthBloom");
-  const eyes = [...document.querySelectorAll("#eyes .eye")];
-  const lids = [...document.querySelectorAll("#eyes .lid")];
-  const lamp = document.getElementById("lamp");
-
-  // ---------- Səs + analiz ----------
+  // ---------- Səs + analiz (robotun ağzı və başı bundan istifadə edir) ----------
   const audio = new Audio();
-  let actx, analyser, freq, speaking = false;
+  let actx, analyser, freq;
+  window.robotAudio = { level: 0, bands: [], speaking: false };
+  const BAND_COUNT = 17;
 
   function initAudio() {
     if (actx) return;
@@ -178,77 +115,43 @@
     freq = new Uint8Array(analyser.frequencyBinCount);
   }
 
-  // ---------- Animasiya dövrü ----------
-  let level = 0, t0 = performance.now();
-  const barLevels = new Array(BAR_COUNT).fill(0);
-
-  function frame(now) {
-    const t = (now - t0) / 1000;
+  let level = 0;
+  function analyse() {
+    const A = window.robotAudio;
     let target = 0;
-    const bandVals = new Array(BAR_COUNT).fill(0);
-
-    if (analyser && speaking) {
+    const bands = new Array(BAND_COUNT).fill(0);
+    if (analyser && A.speaking) {
       analyser.getByteFrequencyData(freq);
-      // Danışıq tezlikləri təxminən 2-48-ci bin arasındadır (24 kHz səs üçün)
       let sum = 0;
-      for (let i = 2; i < 48; i++) sum += freq[i];
+      for (let i = 2; i < 48; i++) sum += freq[i]; // danışıq tezlikləri
       target = Math.min(1, (sum / 46) / 150);
-      for (let b = 0; b < BAR_COUNT; b++) {
-        // Ortadakı barlar daha hündür olsun (simmetrik ekvalayzer)
-        const center = Math.abs(b - (BAR_COUNT - 1) / 2) / ((BAR_COUNT - 1) / 2);
-        const bin = 3 + Math.floor(center * 30);
-        bandVals[b] = Math.min(1, freq[bin] / 210) * (1 - center * 0.45);
+      for (let b = 0; b < BAND_COUNT; b++) {
+        const center = Math.abs(b - (BAND_COUNT - 1) / 2) / ((BAND_COUNT - 1) / 2);
+        bands[b] = Math.min(1, freq[3 + Math.floor(center * 30)] / 210) * (1 - center * 0.45);
       }
     }
     level += (target - level) * (target > level ? 0.6 : 0.25);
-
-    // Barlar
-    const idle = 0.06 + 0.03 * Math.sin(t * 1.6); // susanda zəif "nəfəs"
-    for (let b = 0; b < BAR_COUNT; b++) {
-      const v = Math.max(idle, bandVals[b]);
-      barLevels[b] += (v - barLevels[b]) * (v > barLevels[b] ? 0.7 : 0.3);
-      const h = 2 + barLevels[b] * 34;
-      bars[b].setAttribute("y", (MID - h / 2).toFixed(2));
-      bars[b].setAttribute("height", h.toFixed(2));
-      bars[b].setAttribute("opacity", (0.25 + barLevels[b] * 0.9).toFixed(2));
-    }
-    rim.setAttribute("opacity", (0.18 + level * 0.8).toFixed(2));
-    bloom.setAttribute("opacity", (level * 0.55).toFixed(2));
-
-    // Gözlər: yüngül parıltı, danışanda bir az parlaq
-    const eyeO = 0.3 + 0.06 * Math.sin(t * 1.1) + level * 0.25;
-    eyes.forEach(e => e.setAttribute("opacity", eyeO.toFixed(2)));
-
-    // Lampa: çox zəif, nizamsız titrəmə
-    const flick = 0.45 + 0.04 * Math.sin(t * 7.3) + 0.03 * Math.sin(t * 13.1) + (Math.random() < 0.01 ? -0.12 : 0);
-    lamp.setAttribute("opacity", flick.toFixed(2));
-
-    requestAnimationFrame(frame);
+    A.level = level;
+    A.bands = bands;
+    requestAnimationFrame(analyse);
   }
-  requestAnimationFrame(frame);
-
-  // ---------- Göz qırpma ----------
-  function blink() {
-    const close = () => lids.forEach(l => l.setAttribute("opacity", ".92"));
-    const open = () => lids.forEach(l => l.setAttribute("opacity", "0"));
-    close();
-    setTimeout(open, 110);
-    if (Math.random() < 0.2) setTimeout(() => { close(); setTimeout(open, 100); }, 260); // bəzən iki dəfə
-    setTimeout(blink, 2500 + Math.random() * 4500);
-  }
-  setTimeout(blink, 2000);
+  requestAnimationFrame(analyse);
 
   // ---------- Film grain ----------
   const grain = document.getElementById("grain").getContext("2d");
   const gImg = grain.createImageData(180, 320);
   setInterval(() => {
     const d = gImg.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const v = Math.random() * 255;
-      d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255;
-    }
+    for (let i = 0; i < d.length; i += 4) { const v = Math.random() * 255; d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255; }
     grain.putImageData(gImg, 0, 0);
   }, 83);
+
+  // Lampa titrəməsi
+  const lampEl = document.getElementById("lamp");
+  setInterval(() => {
+    const t = performance.now() / 1000;
+    lampEl.style.opacity = (0.85 + 0.08 * Math.sin(t * 7.3) + 0.05 * Math.sin(t * 13.1) - (Math.random() < 0.02 ? 0.2 : 0)).toFixed(2);
+  }, 60);
 
   // ---------- Şərh və subtitr ----------
   let commentTimer, subtitleTimer, currentId = null, ws;
@@ -261,18 +164,17 @@
     commentEl.classList.add("show");
     clearTimeout(commentTimer);
     commentTimer = setTimeout(() => commentEl.classList.remove("show"), 6000);
+    robot()?.gesture("glance"); // robot şərhə baxır
   }
 
   function stopTalking() {
-    speaking = false;
+    window.robotAudio.speaking = false;
     subtitleTimer = setTimeout(() => subtitleEl.classList.remove("show"), 1200);
-    if (currentId && ws && ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: "speak_done", id: currentId }));
-    }
+    if (currentId && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "speak_done", id: currentId }));
     currentId = null;
   }
 
-  audio.addEventListener("playing", () => { speaking = true; });
+  audio.addEventListener("playing", () => { window.robotAudio.speaking = true; });
   audio.addEventListener("ended", stopTalking);
   audio.addEventListener("error", () => { if (currentId) stopTalking(); });
 
@@ -281,6 +183,7 @@
     clearTimeout(subtitleTimer);
     subtitleEl.textContent = msg.text;
     subtitleEl.classList.add("show");
+    if (Math.random() < 0.5) setTimeout(() => robot()?.gesture(Math.random() < 0.6 ? "talk" : "talkL"), 300);
     try {
       initAudio();
       if (actx.state !== "running") await actx.resume();
@@ -288,7 +191,7 @@
       audio.src = msg.audio;
       await audio.play();
     } catch (err) {
-      unlockEl.classList.add("show"); // brauzer səsi blokladı: klik gözləyirik
+      unlockEl.classList.add("show");
       stopTalking();
     }
   }
@@ -297,15 +200,15 @@
     unlockEl.classList.remove("show");
     initAudio();
     await actx.resume();
+    if (actx.state !== "running") setTimeout(() => actx.resume(), 300); // bəzən ikinci cəhd lazım olur
   });
 
   function handle(msg) {
     switch (msg.type) {
       case "comment": showComment(msg.user, msg.text); break;
       case "speak": speak(msg); break;
-      case "speak_end":
-        if (msg.id === currentId) { audio.pause(); stopTalking(); }
-        break;
+      case "speak_end": if (msg.id === currentId) { audio.pause(); stopTalking(); } break;
+      case "gesture": robot()?.gesture(msg.name); break;
     }
   }
 
