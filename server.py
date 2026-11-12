@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import shutil
+import socket
 import time
 import uuid
 from pathlib import Path
@@ -35,7 +36,9 @@ MEDIA_DIR = BASE_DIR / "media"
 TTS_DIR = MEDIA_DIR / "tts"
 CLIPS_DIR = MEDIA_DIR / "clips"
 
-HOST = "127.0.0.1"
+# 0.0.0.0: robot səhifəsi eyni Wi-Fi-dakı telefonda da açılır (telefonla yayın üçün).
+# İdarəetmə (test paneli, TikTok, video studiyası) isə yalnız bu Mac-dən mümkündür.
+HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", 8080))
 
 QUEUE_SIZE = 5        # növbədə ən çox bu qədər şərh; dolanda ən köhnəsi atılır
@@ -215,8 +218,23 @@ class Hub:
             event.set()
 
 
+def is_local(request: web.Request) -> bool:
+    return request.remote in ("127.0.0.1", "::1")
+
+
+def lan_ip() -> str | None:
+    """Bu Mac-in Wi-Fi şəbəkəsindəki IP ünvanı (telefon üçün link)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))  # paket göndərilmir, yalnız marşrut seçilir
+            return s.getsockname()[0]
+    except OSError:
+        return None
+
+
 async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     hub: Hub = request.app["hub"]
+    local = is_local(request)
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(request)
     hub.clients.add(ws)
@@ -232,6 +250,9 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
             except json.JSONDecodeError:
                 continue
             kind = data.get("type")
+            # Başqa cihazlar (telefon) yalnız robot səhifəsi kimi işləyə bilər, idarə edə bilməz
+            if not local and kind in ("test_comment", "clip_request", "tiktok_connect"):
+                continue
             if kind == "test_comment":
                 user = str(data.get("user") or "test").strip()[:40]
                 text = str(data.get("text") or "").strip()[:200]
@@ -283,6 +304,8 @@ async def convert_to_mp4(raw: Path) -> Path:
 async def clip_upload(request: web.Request) -> web.Response:
     """Robot səhifəsi yazdığı videonu bura göndərir."""
     hub: Hub = request.app["hub"]
+    if not is_local(request):
+        raise web.HTTPForbidden()
     clip_id = request.query.get("id", "")
     ext = "mp4" if "mp4" in (request.content_type or "") else "webm"
     data = await request.read()
@@ -297,8 +320,10 @@ async def clip_upload(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
-def page(filename: str):
-    async def handler(request: web.Request) -> web.FileResponse:
+def page(filename: str, local_only: bool = False):
+    async def handler(request: web.Request) -> web.StreamResponse:
+        if local_only and not is_local(request):
+            raise web.HTTPForbidden(text="Test paneli yalnız Mac-in özündən açılır.")
         return web.FileResponse(WEB_DIR / filename)
     return handler
 
@@ -323,7 +348,7 @@ def create_app() -> web.Application:
     app = web.Application(client_max_size=300 * 1024 * 1024)  # video yükləmələri üçün
     app["hub"] = Hub()
     app.router.add_get("/", page("robot.html"))
-    app.router.add_get("/control", page("control.html"))
+    app.router.add_get("/control", page("control.html", local_only=True))
     app.router.add_get("/ws", ws_handler)
     app.router.add_post("/clip_upload", clip_upload)
     app.router.add_static("/media/", MEDIA_DIR)
@@ -334,6 +359,10 @@ def create_app() -> web.Application:
 
 
 if __name__ == "__main__":
-    print(f"\n  Robot səhifəsi:  http://{HOST}:{PORT}/")
-    print(f"  Test paneli:     http://{HOST}:{PORT}/control\n")
+    print(f"\n  Robot səhifəsi:  http://127.0.0.1:{PORT}/")
+    print(f"  Test paneli:     http://127.0.0.1:{PORT}/control")
+    ip = lan_ip()
+    if HOST == "0.0.0.0" and ip:
+        print(f"  Telefon üçün:    http://{ip}:{PORT}/   (eyni Wi-Fi-da)")
+    print()
     web.run_app(create_app(), host=HOST, port=PORT, print=None)

@@ -2,6 +2,10 @@
 <html lang="az">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Robot</title>
 <style>
   /* 9:16 şaquli kadr (TikTok). OBS-də 1080x1920 ölçüsü verilir. */
@@ -63,7 +67,7 @@
   #unlock.show { display: grid; }
 
   #status { position: absolute; right: 8px; bottom: 8px; width: 10px; height: 10px; border-radius: 50%; background: #da3633; }
-  #status.ok { background: #2ea043; }
+  #status.ok { display: none; } /* yalnız bağlantı kəsiləndə (qırmızı) görünür */
 </style>
 <script type="importmap">
   { "imports": { "three": "/static/vendor/three.module.min.js", "three/addons/": "/static/vendor/jsm/" } }
@@ -210,6 +214,15 @@
       stopTalking();
     }
   }
+
+  // Telefonda ekran sönməsin (yayın zamanı)
+  let wakeLock = null;
+  async function keepAwake() {
+    try { if ("wakeLock" in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => (wakeLock = null)); } } catch (e) {}
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") keepAwake(); });
+  // İlk toxunuş: səsi aç + ekranı oyaq saxla
+  document.addEventListener("pointerdown", () => { initAudio(); actx.resume(); keepAwake(); }, { once: true });
 
   unlockEl.addEventListener("click", async () => {
     unlockEl.classList.remove("show");
