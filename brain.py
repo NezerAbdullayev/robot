@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import time
+import unicodedata
 from collections import deque
 from pathlib import Path
 
@@ -79,6 +80,8 @@ class Brain:
         """Şərh qəbul olunursa None, olunmursa səbəbi qaytarır."""
         if len(LETTER_RE.findall(text)) < 2:
             return "hərf yoxdur (emoji/rəqəm)"
+        if text.lstrip().startswith("@"):
+            return "başqa izləyiciyə yazılıb"
         if self.has_badword(text):
             return "qadağan söz"
         norm = text.lower().strip()
@@ -96,12 +99,14 @@ class Brain:
     def clean_name(self, user: str) -> str | None:
         """TikTok adını səsləndirmək üçün təmizləyir: 'ali_123 😎' -> 'ali'.
         Ad oxunmursa və ya qadağan söz varsa, None qaytarır (onda ad deyilmir)."""
-        name = EMOJI_RE.sub("", user)
+        name = unicodedata.normalize("NFKC", user)  # 𝓧𝓪𝓷𝓲𝓶¹⁷ -> Xanim17
+        name = EMOJI_RE.sub("", name)
         name = re.sub(r"[_\.\-]+", " ", name)       # ali_veli -> ali veli
         name = re.sub(r"[^\w\s]|\d", "", name)        # rəqəm və simvolları at
         words = name.split()[:MAX_NAME_WORDS]
         name = " ".join(words)[:MAX_NAME_CHARS].strip()
-        if len(set(LETTER_RE.findall(name.lower()))) < 3 or self.has_badword(name):
+        letters = LETTER_RE.findall(name.lower())
+        if len(letters) < 3 or len(set(letters)) < 2 or self.has_badword(name):
             return None  # "xx", "aaa" kimi adlar deyilmir
         if name.isupper():
             name = name.lower()  # KAMRAN -> kamran -> Kamran

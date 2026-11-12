@@ -13,16 +13,33 @@
   .quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
   .quick button { margin: 0; background: #eaeef2; color: #1f2328; font-size: 13px; padding: 6px 10px; }
   #log { margin-top: 16px; font-size: 13px; color: #59636e; white-space: pre-line; }
+  .card + .card { margin-top: 16px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row input { flex: 1; }
+  .row button { margin-top: 0; white-space: nowrap; }
+  button.secondary { background: #eaeef2; color: #1f2328; }
+  #tt-status { margin-top: 12px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  #tt-dot { width: 10px; height: 10px; border-radius: 50%; background: #8c959f; flex: none; }
+  #tt-dot.live { background: #2ea043; } #tt-dot.wait { background: #d4a72c; } #tt-dot.err { background: #da3633; }
 </style>
 </head>
 <body>
+<div class="card">
+  <h1>TikTok canlı yayını</h1>
+  <form id="tt" class="row">
+    <input id="tt-user" placeholder="@hesab_adi" autocomplete="off">
+    <button type="submit">Qoşul</button>
+    <button type="button" id="tt-stop" class="secondary">Dayandır</button>
+  </form>
+  <div id="tt-status"><span id="tt-dot"></span><span id="tt-text">Qoşulmayıb</span></div>
+</div>
 <div class="card">
   <h1>Test paneli (saxta şərh)</h1>
   <form id="f">
     <label for="user">İstifadəçi adı</label>
     <input id="user" value="test_user">
     <label for="text">Şərh</label>
-    <input id="text" placeholder="Salam robot!" autofocus>
+    <input id="text" placeholder="Salam robot!" >
     <button type="submit">Göndər</button>
   </form>
   <div class="quick">
@@ -39,6 +56,7 @@
   function connect() {
     ws = new WebSocket(`ws://${location.host}/ws`);
     ws.onopen = () => log.textContent = "Serverə qoşuldu ✓";
+    ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.type === "tiktok_status") showTikTok(m); };
     ws.onclose = () => { log.textContent = "Bağlantı kəsildi, yenidən qoşulur…"; setTimeout(connect, 1000); };
   }
   connect();
@@ -55,6 +73,29 @@
     send(input.value.trim());
     input.value = "";
   };
+  // ---------- TikTok ----------
+  const STATES = {
+    stopped:    ["", "Qoşulmayıb"],
+    connecting: ["wait", "Qoşulur: @{u}…"],
+    live:       ["live", "Canlı yayına qoşulub: @{u} — şərhlər gəlir"],
+    offline:    ["wait", "@{u} hazırda canlı deyil, gözləyir (30 saniyədən bir yoxlayır)"],
+    error:      ["err", "Xəta: {d} (yenidən cəhd edir)"],
+  };
+  function showTikTok(m) {
+    const [cls, text] = STATES[m.state] || ["", m.state];
+    document.getElementById("tt-dot").className = cls;
+    document.getElementById("tt-text").textContent = text.replace("{u}", m.username).replace("{d}", m.detail);
+    if (m.username && !document.getElementById("tt-user").value) document.getElementById("tt-user").value = "@" + m.username;
+  }
+  document.getElementById("tt").onsubmit = (e) => {
+    e.preventDefault();
+    const username = document.getElementById("tt-user").value.trim();
+    if (username && ws.readyState === 1) ws.send(JSON.stringify({ type: "tiktok_connect", username }));
+  };
+  document.getElementById("tt-stop").onclick = () => {
+    if (ws.readyState === 1) ws.send(JSON.stringify({ type: "tiktok_connect", username: "" }));
+  };
+
   document.querySelectorAll(".quick button").forEach(b => b.onclick = () => send(b.dataset.t));
 </script>
 </body>

@@ -8,6 +8,7 @@ AI Robot canlı yayın serveri.
 Hissə 1: skelet
 Hissə 2: səs (edge-tts), səs səhifədə çalınır
 Hissə 3: AI beyin (Gemini), süzgəc və növbə
+Hissə 4: TikTok canlı yayınına qoşulma
 """
 
 import asyncio
@@ -22,6 +23,7 @@ from aiohttp import web, WSMsgType
 from dotenv import load_dotenv
 
 from brain import Brain
+from tiktok import TikTokSource
 from tts import TTS
 
 BASE_DIR = Path(__file__).parent
@@ -52,6 +54,29 @@ class Hub:
         self.ready: asyncio.Queue[tuple] = asyncio.Queue(maxsize=1)
         # Robot səhifəsi səsi bitirəndə "speak_done" göndərir; onu burada gözləyirik
         self.pending: dict[str, asyncio.Event] = {}
+        # TikTok
+        self.tiktok_status = {"type": "tiktok_status", "state": "stopped", "detail": "", "username": ""}
+        self.tiktok = TikTokSource(
+            on_comment=self.add_comment,
+            on_gift=self.on_gift,
+            on_follow=self.on_follow,
+            on_status=self.set_tiktok_status,
+        )
+
+    # ---------- TikTok hadisələri ----------
+
+    def set_tiktok_status(self, state: str, detail: str) -> None:
+        self.tiktok_status = {"type": "tiktok_status", "state": state, "detail": detail,
+                              "username": self.tiktok.username or ""}
+        asyncio.create_task(self.broadcast(self.tiktok_status))
+
+    def on_gift(self, user: str, gift: str, count: int) -> None:
+        log.info("🎁 Hədiyyə: %s -> %s x%d", user, gift, count)
+        asyncio.create_task(self.broadcast({"type": "gesture", "name": "nod"}))
+
+    def on_follow(self, user: str) -> None:
+        log.info("➕ Follow: %s", user)
+        asyncio.create_task(self.broadcast({"type": "gesture", "name": "nod"}))
 
     async def broadcast(self, message: dict) -> None:
         data = json.dumps(message, ensure_ascii=False)
@@ -141,6 +166,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     await ws.prepare(request)
     hub.clients.add(ws)
     log.info("Səhifə qoşuldu (cəmi: %d)", len(hub.clients))
+    await ws.send_str(json.dumps(hub.tiktok_status, ensure_ascii=False))
 
     try:
         async for msg in ws:
@@ -158,6 +184,10 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                     hub.add_comment(user, text)
             elif kind == "speak_done":
                 hub.speak_done(str(data.get("id", "")))
+            elif kind == "tiktok_connect":
+                username = str(data.get("username") or "").strip()[:60]
+                log.info("TikTok hesabı: %s", username or "(dayandırıldı)")
+                hub.tiktok.set_username(username)
     finally:
         hub.clients.discard(ws)
         log.info("Səhifə ayrıldı (cəmi: %d)", len(hub.clients))
@@ -173,11 +203,15 @@ def page(filename: str):
 async def on_startup(app: web.Application) -> None:
     hub: Hub = app["hub"]
     app["tasks"] = [asyncio.create_task(hub.preparer()), asyncio.create_task(hub.speaker())]
+    # .env-də TIKTOK_USERNAME varsa, avtomatik qoşul
+    if os.environ.get("TIKTOK_USERNAME"):
+        hub.tiktok.set_username(os.environ["TIKTOK_USERNAME"])
 
 
 async def on_cleanup(app: web.Application) -> None:
     for task in app["tasks"]:
         task.cancel()
+    app["hub"].tiktok.set_username(None)
 
 
 def create_app() -> web.Application:
