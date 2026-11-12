@@ -8,3 +8,7 @@ media/tts/
 # Böyük video faylları git-ə düşməsin
 media/*.mp4
 media/*.mov
+
+# İnternetdən endirilmiş istinad şəkli (müəllif hüququ)
+design/image.robot.avif
+design/user_robot*.png
