@@ -1,22 +1,28 @@
 """
 AI Robot canlı yayın serveri.
 
-Hissə 1: skelet
   - /         -> robot səhifəsi (OBS Browser Source)
   - /control  -> test paneli (saxta şərh göndərmək üçün)
   - /ws       -> WebSocket (server <-> səhifələr)
+
+Hissə 1: skelet
+Hissə 2: səs (edge-tts), səs səhifədə çalınır
 """
 
 import asyncio
 import json
 import logging
+import uuid
 from pathlib import Path
 
 from aiohttp import web, WSMsgType
 
+from tts import TTS
+
 BASE_DIR = Path(__file__).parent
 WEB_DIR = BASE_DIR / "web"
 MEDIA_DIR = BASE_DIR / "media"
+TTS_DIR = MEDIA_DIR / "tts"
 
 HOST = "127.0.0.1"
 PORT = 8080
@@ -31,6 +37,9 @@ class Hub:
     def __init__(self) -> None:
         self.clients: set[web.WebSocketResponse] = set()
         self.queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=20)
+        self.tts = TTS(TTS_DIR)
+        # Robot səhifəsi səsi bitirəndə "speak_done" göndərir; onu burada gözləyirik
+        self.pending: dict[str, asyncio.Event] = {}
 
     async def broadcast(self, message: dict) -> None:
         data = json.dumps(message, ensure_ascii=False)
@@ -52,15 +61,43 @@ class Hub:
             comment = await self.queue.get()
             log.info("Şərh: %s: %s", comment["user"], comment["text"])
 
-            # Hissə 1: hələ AI və səs yoxdur, robot şərhi sadəcə təkrarlayır.
+            # Hələ AI yoxdur (Hissə 3), robot şərhi sadəcə təkrarlayır.
             reply = comment["text"]
-            duration = max(1.5, len(reply) * 0.08)  # təxmini danışma müddəti
-
-            await self.broadcast({"type": "comment", "user": comment["user"], "text": comment["text"]})
-            await self.broadcast({"type": "speak_start", "text": reply})
-            await asyncio.sleep(duration)
-            await self.broadcast({"type": "speak_end"})
+            try:
+                await self.say(reply, comment)
+            except Exception:
+                log.exception("Cavab verilə bilmədi")
             await asyncio.sleep(0.5)  # cavablar arasında kiçik fasilə
+
+    async def say(self, text: str, comment: dict | None = None) -> None:
+        """Mətni səsləndirir və robot səsi bitirənə qədər gözləyir."""
+        filename, duration = await self.tts.synthesize(text)
+        speak_id = uuid.uuid4().hex
+        done = asyncio.Event()
+        self.pending[speak_id] = done
+
+        if comment:
+            await self.broadcast({"type": "comment", "user": comment["user"], "text": comment["text"]})
+        await self.broadcast({
+            "type": "speak",
+            "id": speak_id,
+            "text": text,
+            "audio": f"/media/tts/{filename}",
+        })
+        log.info("Robot: %s (%.1f san)", text, duration)
+
+        try:
+            # Səhifə cavab verməsə (məsələn, açıq deyil), müddət bitəndə davam edirik
+            await asyncio.wait_for(done.wait(), timeout=duration + 3)
+        except TimeoutError:
+            await self.broadcast({"type": "speak_end", "id": speak_id})
+        finally:
+            self.pending.pop(speak_id, None)
+
+    def speak_done(self, speak_id: str) -> None:
+        event = self.pending.get(speak_id)
+        if event:
+            event.set()
 
 
 async def ws_handler(request: web.Request) -> web.WebSocketResponse:
@@ -78,11 +115,14 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                 data = json.loads(msg.data)
             except json.JSONDecodeError:
                 continue
-            if data.get("type") == "test_comment":
+            kind = data.get("type")
+            if kind == "test_comment":
                 user = str(data.get("user") or "test").strip()[:40]
                 text = str(data.get("text") or "").strip()[:200]
                 if text:
                     hub.add_comment(user, text)
+            elif kind == "speak_done":
+                hub.speak_done(str(data.get("id", "")))
     finally:
         hub.clients.discard(ws)
         log.info("Səhifə ayrıldı (cəmi: %d)", len(hub.clients))

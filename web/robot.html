@@ -34,6 +34,11 @@
     font-size: 4.2vh; font-weight: 800; text-shadow: 0 0.3vh 0.8vh #000, 0 0 0.3vh #000; opacity: 0; transition: opacity 150ms; }
   #subtitle.show { opacity: 1; }
 
+  /* Adi brauzerdə səs üçün bir dəfə klik lazımdır (OBS-də lazım deyil) */
+  #unlock { position: absolute; inset: 0; display: none; place-items: center; background: rgba(0,0,0,.6);
+    color: #fff; font-size: 3vh; cursor: pointer; }
+  #unlock.show { display: grid; }
+
   #status { position: absolute; right: 8px; bottom: 8px; width: 10px; height: 10px; border-radius: 50%; background: #da3633; }
   #status.ok { background: #2ea043; }
 </style>
@@ -46,6 +51,7 @@
 </div>
 <div id="comment"></div>
 <div id="subtitle"></div>
+<div id="unlock">🔊 Səsi aktivləşdirmək üçün klikləyin</div>
 <div id="status" title="Serverə qoşulma"></div>
 
 <script>
@@ -70,25 +76,80 @@
     commentTimer = setTimeout(() => commentEl.classList.remove("show"), 6000);
   }
 
+  // --- Səs ---
+  const audio = new Audio();
+  const unlockEl = document.getElementById("unlock");
+  let currentId = null;
+  let subtitleTimer;
+
+  function startTalking(text) {
+    clearTimeout(subtitleTimer);
+    subtitleEl.textContent = text;
+    subtitleEl.classList.add("show");
+    body.classList.add("speaking");
+  }
+
+  function stopTalking() {
+    body.classList.remove("speaking");
+    subtitleTimer = setTimeout(() => subtitleEl.classList.remove("show"), 1200);
+    if (currentId && ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "speak_done", id: currentId }));
+    }
+    currentId = null;
+  }
+
+  audio.addEventListener("playing", () => body.classList.add("speaking"));
+  audio.addEventListener("ended", stopTalking);
+  audio.addEventListener("error", stopTalking);
+
+  async function speak(msg) {
+    currentId = msg.id;
+    startTalking(msg.text);
+    audio.src = msg.audio;
+    try {
+      await audio.play();
+    } catch (err) {
+      // Brauzer səsi blokladı: klik gözləyirik
+      unlockEl.classList.add("show");
+      stopTalking();
+    }
+  }
+
+  // Brauzerin səs icazəsini açmaq üçün 0.1 saniyəlik səssiz WAV
+  function silentWav() {
+    const rate = 8000, n = 800, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+    const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    str(0, "RIFF"); v.setUint32(4, 36 + n, true); str(8, "WAVEfmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    str(36, "data"); v.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+    return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+  }
+
+  unlockEl.addEventListener("click", () => {
+    unlockEl.classList.remove("show");
+    audio.src = silentWav();
+    audio.play().catch(() => {});
+  });
+
   function handle(msg) {
     switch (msg.type) {
       case "comment":
         showComment(msg.user, msg.text);
         break;
-      case "speak_start":
-        subtitleEl.textContent = msg.text;
-        subtitleEl.classList.add("show");
-        body.classList.add("speaking");
+      case "speak":
+        speak(msg);
         break;
       case "speak_end":
-        body.classList.remove("speaking");
-        setTimeout(() => subtitleEl.classList.remove("show"), 800);
+        if (msg.id === currentId) { audio.pause(); stopTalking(); }
         break;
     }
   }
 
+  let ws;
   function connect() {
-    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws = new WebSocket(`ws://${location.host}/ws`);
     ws.onopen = () => statusEl.classList.add("ok");
     ws.onmessage = (e) => handle(JSON.parse(e.data));
     ws.onclose = () => { statusEl.classList.remove("ok"); setTimeout(connect, 1000); };

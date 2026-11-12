@@ -1,1 +1,2 @@
 aiohttp
+edge-tts
