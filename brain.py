@@ -18,14 +18,18 @@ log = logging.getLogger("robot")
 MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]  # birincisi işləməsə, ikincisi
 MODEL_TIMEOUT = 6.0  # bir modelə ən çox bu qədər saniyə gözləyirik
 ROBOT_NAME = "Robo"
-MAX_REPLY_WORDS = 8
+MAX_REPLY_WORDS = 7   # AI cavabının ən çox söz sayı (ad bura daxil deyil)
+MAX_NAME_WORDS = 1    # istifadəçi adından ən çox neçə söz deyilsin
+MAX_NAME_CHARS = 20
 
 SYSTEM_PROMPT = f"""Sən TikTok canlı yayınında danışan robotsan. Adın {ROBOT_NAME}-dur.
 Evdə yaşayırsan, zarafatcıl, mehriban və bir az hazırcavabsan.
 
 Qaydalar:
 - Yalnız Azərbaycan dilində cavab ver.
-- Cavab ÇOX qısa olsun: 2-5 söz. Bir cümlə.
+- Cavab qısa olsun: 4-5 söz. Bir cümlə.
+- İzləyicinin adını cavaba YAZMA. Ad cavabın əvvəlinə avtomatik əlavə olunur ("Ali, ...").
+  Ona görə cavabı kiçik hərflə başla (xüsusi ad deyilsə).
 - Emoji, işarə, hashtag yazma. Cavab səsləndiriləcək.
 - Siyasət, din, millətlər, söyüş, cinsi mövzular, şəxsi məlumatlar haqqında danışma. Belə suallara zarafatla mövzunu dəyiş.
 - Kimisə təhqir etmə, heç kimi ələ salma.
@@ -60,6 +64,7 @@ class Brain:
         self.client = genai.Client(api_key=api_key)
         self.badwords = load_badwords(base_dir / "badwords.txt")
         self.history: deque[str] = deque(maxlen=6)    # son söhbətlər (kontekst üçün)
+        self.recent_names: deque[str] = deque(maxlen=10)
         self.recent_texts: deque[str] = deque(maxlen=30)  # təkrar şərhləri tutmaq üçün
         self.user_last: dict[str, float] = {}
         self.user_cooldown = 20.0  # eyni adama ən tez 20 saniyədə bir cavab
@@ -88,6 +93,21 @@ class Brain:
         self.recent_texts.append(norm)
         return None
 
+    def clean_name(self, user: str) -> str | None:
+        """TikTok adını səsləndirmək üçün təmizləyir: 'ali_123 😎' -> 'ali'.
+        Ad oxunmursa və ya qadağan söz varsa, None qaytarır (onda ad deyilmir)."""
+        name = EMOJI_RE.sub("", user)
+        name = re.sub(r"[_\.\-]+", " ", name)       # ali_veli -> ali veli
+        name = re.sub(r"[^\w\s]|\d", "", name)        # rəqəm və simvolları at
+        words = name.split()[:MAX_NAME_WORDS]
+        name = " ".join(words)[:MAX_NAME_CHARS].strip()
+        if len(set(LETTER_RE.findall(name.lower()))) < 3 or self.has_badword(name):
+            return None  # "xx", "aaa" kimi adlar deyilmir
+        if name.isupper():
+            name = name.lower()  # KAMRAN -> kamran -> Kamran
+        first = "İ" if name[0] == "i" else name[0].upper()
+        return first + name[1:]
+
     def clean_reply(self, reply: str) -> str | None:
         reply = EMOJI_RE.sub("", reply)
         reply = reply.replace("*", "").replace('"', "").replace("#", "").strip()
@@ -102,10 +122,13 @@ class Brain:
     # ---------- Cavab ----------
 
     async def reply(self, user: str, text: str) -> str | None:
+        name = self.clean_name(user)
         context = "\n".join(self.history)
         prompt = (
             (f"Son söhbət:\n{context}\n\n" if context else "")
-            + f"Yeni şərh.\nİzləyicinin adı: {user}\nŞərh: {text}"
+            + "Yeni şərh.\n"
+            + (f"İzləyicinin adı: {name}\n" if name else "")
+            + f"Şərh: {text}"
         )
         config = types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
@@ -121,9 +144,24 @@ class Brain:
                     self.client.aio.models.generate_content(model=model, contents=prompt, config=config),
                     timeout=MODEL_TIMEOUT,
                 )
-                answer = self.clean_reply(response.text or "")
-                if answer:
-                    self.history.append(f"{user}: {text}\n{ROBOT_NAME}: {answer}")
+                raw = response.text or ""
+                # Model qaydaya baxmayaraq adı yazıbsa, silirik (ad aşağıda əlavə olunur)
+                for n in filter(None, [user, name]):
+                    raw = re.sub(re.escape(n), "", raw, flags=re.IGNORECASE)
+                # Model kontekstdəki başqa adla da başlaya bilər: "Nigar, ..." -> "..."
+                first, sep, rest = raw.strip().partition(",")
+                if sep and first.strip() in self.recent_names:
+                    raw = rest
+                raw = raw.strip().lstrip(" ,!.").strip()
+                answer = self.clean_reply(raw)
+                if not answer:
+                    return None
+                if name:
+                    answer = f"{name}, {answer}"
+                    self.recent_names.append(name)
+                else:
+                    answer = ("İ" if answer[0] == "i" else answer[0].upper()) + answer[1:]
+                self.history.append(f"{name or 'izləyici'}: {text}\n{ROBOT_NAME}: {answer}")
                 return answer
             except TimeoutError:
                 log.warning("%s gec cavab verdi (%.0f san), növbəti model sınanır", model, MODEL_TIMEOUT)
