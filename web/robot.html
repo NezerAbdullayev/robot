@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="az">
+<head>
+<meta charset="utf-8">
+<title>Robot</title>
+<style>
+  /* 9:16 şaquli kadr (TikTok). OBS-də 1080x1920 ölçüsü verilir. */
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #stage { position: absolute; inset: 0; }
+  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: opacity 120ms linear; }
+  #talking { opacity: 0; }
+  body.speaking #talking { opacity: 1; }
+
+  /* Video hələ yoxdursa göstərilən müvəqqəti robot */
+  #placeholder { position: absolute; inset: 0; display: none; place-items: center;
+    background: radial-gradient(circle at 50% 40%, #2b3440, #0d1117); }
+  body.no-video #placeholder { display: grid; }
+  .head { width: 46vmin; height: 46vmin; border-radius: 22%; background: #c9d1d9; box-shadow: inset 0 -2vmin 0 #8b949e;
+    display: grid; grid-template-rows: 1fr 1fr; place-items: center; }
+  .eyes { display: flex; gap: 10vmin; }
+  .eye { width: 7vmin; height: 7vmin; border-radius: 50%; background: #0d1117; }
+  .mouth { width: 22vmin; height: 2vmin; border-radius: 2vmin; background: #0d1117; transition: height 80ms; }
+  body.speaking .mouth { animation: talk 220ms infinite alternate; background: #1f6feb; }
+  @keyframes talk { from { height: 2vmin; } to { height: 7vmin; } }
+
+  /* İzləyicinin şərhi */
+  #comment { position: absolute; left: 4%; right: 4%; top: 6%; padding: 2.2vh 3vw; border-radius: 2vh;
+    background: rgba(0,0,0,.55); color: #fff; font-size: 2.6vh; opacity: 0; transition: opacity 200ms; }
+  #comment.show { opacity: 1; }
+  #comment b { color: #ffd33d; }
+
+  /* Robotun cavabı (subtitr) */
+  #subtitle { position: absolute; left: 6%; right: 6%; bottom: 14%; text-align: center; color: #fff;
+    font-size: 4.2vh; font-weight: 800; text-shadow: 0 0.3vh 0.8vh #000, 0 0 0.3vh #000; opacity: 0; transition: opacity 150ms; }
+  #subtitle.show { opacity: 1; }
+
+  #status { position: absolute; right: 8px; bottom: 8px; width: 10px; height: 10px; border-radius: 50%; background: #da3633; }
+  #status.ok { background: #2ea043; }
+</style>
+</head>
+<body class="no-video">
+<div id="stage">
+  <div id="placeholder"><div class="head"><div class="eyes"><div class="eye"></div><div class="eye"></div></div><div class="mouth"></div></div></div>
+  <video id="idle"    src="/media/idle.mp4"    autoplay muted loop playsinline></video>
+  <video id="talking" src="/media/talking.mp4" autoplay muted loop playsinline></video>
+</div>
+<div id="comment"></div>
+<div id="subtitle"></div>
+<div id="status" title="Serverə qoşulma"></div>
+
+<script>
+  const body = document.body;
+  const commentEl = document.getElementById("comment");
+  const subtitleEl = document.getElementById("subtitle");
+  const statusEl = document.getElementById("status");
+
+  // Videolar varsa placeholder gizlənir
+  const idle = document.getElementById("idle");
+  idle.addEventListener("loadeddata", () => body.classList.remove("no-video"));
+  idle.addEventListener("error", () => body.classList.add("no-video"));
+
+  let commentTimer;
+  function showComment(user, text) {
+    commentEl.innerHTML = "";
+    const b = document.createElement("b");
+    b.textContent = user + ": ";
+    commentEl.append(b, document.createTextNode(text));
+    commentEl.classList.add("show");
+    clearTimeout(commentTimer);
+    commentTimer = setTimeout(() => commentEl.classList.remove("show"), 6000);
+  }
+
+  function handle(msg) {
+    switch (msg.type) {
+      case "comment":
+        showComment(msg.user, msg.text);
+        break;
+      case "speak_start":
+        subtitleEl.textContent = msg.text;
+        subtitleEl.classList.add("show");
+        body.classList.add("speaking");
+        break;
+      case "speak_end":
+        body.classList.remove("speaking");
+        setTimeout(() => subtitleEl.classList.remove("show"), 800);
+        break;
+    }
+  }
+
+  function connect() {
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => statusEl.classList.add("ok");
+    ws.onmessage = (e) => handle(JSON.parse(e.data));
+    ws.onclose = () => { statusEl.classList.remove("ok"); setTimeout(connect, 1000); };
+  }
+  connect();
+</script>
+</body>
+</html>
