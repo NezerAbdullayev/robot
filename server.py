@@ -289,7 +289,7 @@ async def convert_to_mp4(raw: Path) -> Path:
     out = raw.with_name(raw.stem + "_tiktok.mp4")
     proc = await asyncio.create_subprocess_exec(
         ffmpeg, "-y", "-loglevel", "error", "-i", str(raw),
-        "-vf", "scale=1080:1920,fps=30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+        "-vf", "scale=1080:1920:out_range=tv,fps=30", "-color_range", "tv", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart", str(out),
         stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
     )
