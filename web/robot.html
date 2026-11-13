@@ -133,20 +133,49 @@
     freq = new Uint8Array(analyser.frequencyBinCount);
   }
 
-  let level = 0;
-  function analyse() {
+  // Ehtiyat: bəzi brauzerlərdə (Safari, telefon) səs çalınır, amma analiz sıfır qaytarır.
+  // Onda ağız danışıq ritmində (hecalarla) süni hərəkət edir.
+  let level = 0, silentSince = 0, heard = false, synth = { phase: 0, rate: 5.5, amp: 0.7 }, lastT = performance.now();
+  function synthLevel(dt) {
+    const prev = synth.phase;
+    synth.phase += dt * synth.rate;
+    if (Math.floor(synth.phase) !== Math.floor(prev)) { // yeni heca
+      synth.rate = 4.5 + Math.random() * 2;
+      synth.amp = Math.random() < 0.15 ? 0.05 : 0.45 + Math.random() * 0.45; // arabir söz arası fasilə
+    }
+    return synth.amp * Math.max(0, Math.sin((synth.phase % 1) * Math.PI));
+  }
+
+  function analyse(now) {
     const A = window.robotAudio;
+    const dt = Math.min((now - lastT) / 1000, 0.1); lastT = now;
+    if (!audio.paused && currentId) A.speaking = true; // "playing" hadisəsi gəlməsə belə
     let target = 0;
     const bands = new Array(BAND_COUNT).fill(0);
-    if (analyser && A.speaking) {
-      analyser.getByteFrequencyData(freq);
+    if (A.speaking) {
       let sum = 0;
-      for (let i = 2; i < 48; i++) sum += freq[i]; // danışıq tezlikləri
-      target = Math.min(1, (sum / 46) / 150);
-      for (let b = 0; b < BAND_COUNT; b++) {
-        const center = Math.abs(b - (BAND_COUNT - 1) / 2) / ((BAND_COUNT - 1) / 2);
-        bands[b] = Math.min(1, freq[3 + Math.floor(center * 30)] / 210) * (1 - center * 0.45);
+      if (analyser) {
+        analyser.getByteFrequencyData(freq);
+        for (let i = 2; i < 48; i++) sum += freq[i]; // danışıq tezlikləri
       }
+      if (sum > 0) {
+        silentSince = 0;
+        heard = true; // analiz işləyir
+        target = Math.min(1, (sum / 46) / 150);
+        for (let b = 0; b < BAND_COUNT; b++) {
+          const center = Math.abs(b - (BAND_COUNT - 1) / 2) / ((BAND_COUNT - 1) / 2);
+          bands[b] = Math.min(1, freq[3 + Math.floor(center * 30)] / 210) * (1 - center * 0.45);
+        }
+      } else if (!audio.paused && !heard) {
+        if (!silentSince) silentSince = now;
+        if (now - silentSince > 250) { // 0.25 san ərzində heç bir səs ölçülmədi -> analiz işləmir
+          target = synthLevel(dt);
+          bands.fill(target * 0.8);
+        }
+      }
+    } else {
+      silentSince = 0;
+      heard = false; // növbəti cavab üçün yenidən yoxla
     }
     level += (target - level) * (target > level ? 0.6 : 0.25);
     A.level = level;
