@@ -6,6 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#000000">
 <title>Robot</title>
 <style>
   /* 9:16 şaquli kadr (TikTok). OBS-də 1080x1920 ölçüsü verilir. */
@@ -263,7 +265,14 @@
   }
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") keepAwake(); });
   // İlk toxunuş: səsi aç + ekranı oyaq saxla
-  document.addEventListener("pointerdown", () => { initAudio(); actx.resume(); keepAwake(); }, { once: true });
+  // Telefonda tam ekran (Android Chrome: ünvan və bildiriş zolaqları gizlənir)
+  function goFullscreen() {
+    const el = document.documentElement;
+    if (!document.fullscreenElement && el.requestFullscreen && matchMedia("(pointer: coarse)").matches) {
+      el.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+    }
+  }
+  document.addEventListener("pointerdown", () => { initAudio(); actx.resume(); keepAwake(); goFullscreen(); });
 
   unlockEl.addEventListener("click", async () => {
     unlockEl.classList.remove("show");
