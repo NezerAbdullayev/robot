@@ -37,7 +37,7 @@ def display_name(user) -> str:
 class TikTokSource:
     """
     on_comment(name, text)         - hər şərh üçün
-    on_gift(name, gift, count)     - hədiyyə (seriya bitəndə bir dəfə)
+    on_gift(name, gift, count, coins) - hədiyyə (seriya bitəndə bir dəfə; coins = bir ədədin dəyəri)
     on_follow(name)                - yeni follow
     on_status(state, detail)       - "connecting" | "live" | "offline" | "error" | "stopped"
     """
@@ -134,7 +134,8 @@ class TikTokSource:
             if gift is not None and getattr(gift, "streakable", False) and event.streaking:
                 return
             name = getattr(gift, "name", "") or "hədiyyə"
-            self.on_gift(display_name(event.user), name, max(1, event.repeat_count or 1))
+            coins = int(getattr(gift, "diamond_count", 0) or 0)  # bir ədədin coin dəyəri
+            self.on_gift(display_name(event.user), name, max(1, event.repeat_count or 1), coins)
 
         @client.on(FollowEvent)
         async def _follow(event: FollowEvent) -> None:

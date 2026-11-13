@@ -89,9 +89,10 @@ class Hub:
                               "username": self.tiktok.username or ""}
         asyncio.create_task(self.broadcast(self.tiktok_status))
 
-    def on_gift(self, user: str, gift: str, count: int) -> None:
-        log.info("🎁 Hədiyyə: %s -> %s x%d", user, gift, count)
-        text, video = self.reactions.for_gift(user, gift)
+    def on_gift(self, user: str, gift: str, count: int, coins: int = 0) -> None:
+        total = count * coins
+        log.info("🎁 Hədiyyə: %s -> %s x%d (%d coin)", user, gift, count, total)
+        text, video = self.reactions.for_gift(user, gift, total)
         label = f"🎁 {gift}" + (f" x{count}" if count > 1 else "") + " göndərdi"
         self._add_event(user, label, text, video)
 
@@ -330,7 +331,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                     ev.set()
             elif kind == "test_gift":
                 hub.on_gift(str(data.get("user") or "test")[:40], str(data.get("gift") or "Rose")[:40],
-                            max(1, int(data.get("count") or 1)))
+                            max(1, int(data.get("count") or 1)), max(0, int(data.get("coins") or 0)))
             elif kind == "test_follow":
                 hub.on_follow(str(data.get("user") or "test")[:40])
             elif kind == "tiktok_connect":

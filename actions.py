@@ -37,7 +37,11 @@ class Reactions:
         except Exception as err:
             log.warning("actions.json oxuna bilmədi: %s", err)
 
-    def _rule_for_gift(self, gift: str) -> dict:
+    def _rule_for_gift(self, gift: str, coins: int) -> dict:
+        """1) coin dəyərinə görə qayda (ümumi dəyər həddən çoxdursa)  2) adla yazılmış qayda  3) "*" (qalan hamısı)"""
+        for rule in sorted(self.config.get("value_rules", []), key=lambda r: -r.get("min_coins", 0)):
+            if coins >= rule.get("min_coins", 0):
+                return rule
         gifts = self.config.get("gifts", {})
         for name, rule in gifts.items():
             if name != "*" and name.lower() == gift.lower():
@@ -72,10 +76,10 @@ class Reactions:
         text = text.replace("{name}, ", "").replace("{name}", "dostum").strip()
         return text[:1].upper() + text[1:]
 
-    def for_gift(self, user: str, gift: str) -> tuple[str | None, str | None]:
-        """(təşəkkür mətni, video faylı)"""
+    def for_gift(self, user: str, gift: str, coins: int = 0) -> tuple[str | None, str | None]:
+        """(təşəkkür mətni, video faylı). coins = hədiyyənin ümumi dəyəri (say x qiymət)"""
         self.reload()
-        rule = self._rule_for_gift(gift)
+        rule = self._rule_for_gift(gift, coins)
         text = self._thanks_text("gift_thanks", user) if rule.get("thanks", True) else None
         return text, self.pick_video(rule.get("action"))
 

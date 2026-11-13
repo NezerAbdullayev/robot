@@ -44,20 +44,21 @@
 <div class="card">
   <h1>Hədiyyə testi</h1>
   <form id="gift" class="row">
-    <input id="g-user" value="test_user" style="flex:1">
-    <input id="g-name" value="Rose" list="gift-names" style="flex:1">
-    <input id="g-count" type="number" value="1" min="1" style="width:70px;flex:none">
+    <input id="g-user" value="test_user" style="flex:1" title="İstifadəçi">
+    <input id="g-name" value="Rose" list="gift-names" style="flex:1" title="Hədiyyə adı">
+    <input id="g-coins" type="number" value="1" min="0" style="width:80px;flex:none" title="Bir ədədin coin dəyəri">
+    <input id="g-count" type="number" value="1" min="1" style="width:60px;flex:none" title="Say">
     <button type="submit">🎁 Göndər</button>
   </form>
-  <datalist id="gift-names"><option value="Rose"><option value="Finger Heart"><option value="Lion"><option value="Galaxy"><option value="Universe"></datalist>
+  <datalist id="gift-names"><option value="Rose"><option value="Finger Heart"><option value="Doughnut"><option value="Galaxy"><option value="Lion"></datalist>
   <div class="quick">
-    <button type="button" data-gift="Rose">🌹 Rose</button>
-    <button type="button" data-gift="Lion">🦁 Lion — rəqs (10 san)</button>
-    <button type="button" data-gift="Galaxy">🌌 Galaxy — rəqs (10 san)</button>
-    <button type="button" data-gift="Universe">🪐 Universe — qısa (5 san)</button>
+    <button type="button" data-gift="Rose" data-coins="1">🌹 Rose (1 coin) → 5 san</button>
+    <button type="button" data-gift="Finger Heart" data-coins="5">🫰 Finger Heart (5) → təşəkkür</button>
+    <button type="button" data-gift="Doughnut" data-coins="30">🍩 Doughnut (30) → 10 san</button>
+    <button type="button" data-gift="Lion" data-coins="29999">🦁 Lion (29999) → 10 san</button>
     <button type="button" id="follow-btn">➕ Follow</button>
   </div>
-  <p class="hint">Hansı hədiyyənin nə edəcəyi <b>actions.json</b> faylındadır. Hərəkət videoları <b>media/actions/</b> qovluğuna qoyulur.</p>
+  <p class="hint">Qaydalar <b>actions.json</b> faylındadır: Rose → 5 saniyəlik video, <b>30 coin və üzəri</b> (say × coin) → 10 saniyəlik video, qalanları → yalnız təşəkkür.</p>
 </div>
 <div class="card">
   <h1>Video studiyası (TikTok üçün qısa videolar)</h1>
@@ -116,13 +117,15 @@
     input.value = "";
   };
   // ---------- Hədiyyə testi ----------
-  function sendGift(gift) {
+  function sendGift(gift, coins) {
     if (ws.readyState !== 1) return;
     ws.send(JSON.stringify({ type: "test_gift", user: document.getElementById("g-user").value || "test",
-      gift: gift || document.getElementById("g-name").value || "Rose", count: Number(document.getElementById("g-count").value) || 1 }));
+      gift: gift || document.getElementById("g-name").value || "Rose",
+      coins: coins ?? (Number(document.getElementById("g-coins").value) || 0),
+      count: Number(document.getElementById("g-count").value) || 1 }));
   }
   document.getElementById("gift").onsubmit = (e) => { e.preventDefault(); sendGift(); };
-  document.querySelectorAll("[data-gift]").forEach((b) => (b.onclick = () => sendGift(b.dataset.gift)));
+  document.querySelectorAll("[data-gift]").forEach((b) => (b.onclick = () => sendGift(b.dataset.gift, Number(b.dataset.coins))));
   document.getElementById("follow-btn").onclick = () => {
     if (ws.readyState === 1) ws.send(JSON.stringify({ type: "test_follow", user: document.getElementById("g-user").value || "test" }));
   };

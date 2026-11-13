@@ -1,22 +1,21 @@
 {
-  "_izah": "Hədiyyə -> hərəkət cədvəli. Hədiyyə adları TikTok-dakı kimi (ingiliscə), böyük/kiçik hərf fərq etmir. '*' = cədvəldə olmayan bütün hədiyyələr. 'action' = aşağıdakı 'actions' bölməsindəki ad (null = video yoxdur). Videolar media/actions/ qovluğunda olmalıdır.",
+  "_izah": "Qaydaların sırası: 1) 'value_rules': hədiyyənin ümumi dəyəri (say x coin) bu həddən çoxdursa  2) 'gifts' bölməsində adı yazılan hədiyyə  3) 'gifts' içindəki '*' (qalan hamısı). 'action' = 'actions' bölməsindəki ad, null = video yoxdur. Videolar media/actions/ qovluğundadır. Faylı dəyişəndə serveri yenidən başlatmaq lazım deyil.",
 
   "gifts": {
-    "Rose":         { "thanks": true, "action": null },
-    "Finger Heart": { "thanks": true, "action": null },
-    "Lion":         { "thanks": true, "action": "dance_long" },
-    "Galaxy":       { "thanks": true, "action": "dance_long" },
-    "Universe":     { "thanks": true, "action": "dance_short" },
-    "*":            { "thanks": true, "action": null }
+    "Rose": { "thanks": true, "action": "dance_short" },
+    "*":    { "thanks": true, "action": null }
   },
+
+  "value_rules": [
+    { "min_coins": 30, "thanks": true, "action": "dance_long" }
+  ],
 
   "follow": { "thanks": true, "action": "wave" },
 
   "actions": {
     "dance_long":  ["dance1_10s.mp4"],
-    "dance_x2":    ["dance1_x2.mp4"],
     "dance_short": ["dance1.mp4"],
-    "wave":  ["wave.mp4"]
+    "wave":        ["wave.mp4"]
   },
 
   "gift_thanks": [
