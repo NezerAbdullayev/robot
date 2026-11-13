@@ -13,7 +13,7 @@
   "follow": { "thanks": true, "action": "wave" },
 
   "actions": {
-    "dance": ["dance1.mp4", "dance2.mp4"],
+    "dance": ["dance1_long.mp4"],
     "wave":  ["wave.mp4"]
   },
 
