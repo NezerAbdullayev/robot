@@ -19,6 +19,8 @@
   /* Hərəkət videosu (rəqs və s.): fotonun üstündə, eyni kadrda */
   #action { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; opacity: 0; transition: opacity 180ms linear; pointer-events: none; }
   #action.show { opacity: 1; }
+  /* Hərəkət videosu oynayanda yazılar robotu örtməsin (ayağa qalxanda baş yuxarı çıxır) */
+  body.acting #comment, body.acting #subtitle { opacity: 0 !important; }
   #room, #robot3d, #android { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
   /* Ştativdəki telefonun çox yüngül "nəfəs alması" */
@@ -333,7 +335,7 @@
     c.drawImage(document.getElementById("grain"), 0, 0, REC_W, REC_H);
     c.restore();
     // Şərh qabarcığı
-    if (commentEl.classList.contains("show")) {
+    if (commentEl.classList.contains("show") && !document.body.classList.contains("acting")) {
       const name = commentEl.querySelector("b")?.textContent || "";
       const text = commentEl.textContent.slice(name.length);
       c.font = "600 44px -apple-system, 'Segoe UI', Roboto, sans-serif";
@@ -349,7 +351,7 @@
       });
     }
     // Subtitr
-    if (subtitleEl.classList.contains("show") && subtitleEl.textContent) {
+    if (subtitleEl.classList.contains("show") && subtitleEl.textContent && !document.body.classList.contains("acting")) {
       c.font = "800 72px -apple-system, 'Segoe UI', Roboto, sans-serif";
       c.textAlign = "center";
       const lines = wrapLines(c, subtitleEl.textContent, REC_W * 0.86);
@@ -424,6 +426,7 @@
         actionEl.load();
       });
       try { await actionEl.play(); } catch (e) { actionEl.muted = true; await actionEl.play(); }
+      document.body.classList.add("acting");
       actionEl.classList.add("show");               // foto -> video (ilk kadr fotodur, keçid hiss olunmur)
       const maxMs = ((actionEl.duration || 15) + 3) * 1000;
       await Promise.race([new Promise((r) => (actionEl.onended = r)), new Promise((r) => setTimeout(r, maxMs))]);
@@ -431,6 +434,7 @@
       console.warn("Hərəkət videosu:", err);
     }
     actionEl.classList.remove("show");              // video -> foto
+    document.body.classList.remove("acting");
     actionEl.muted = false;
     await sleep(200);
     if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "action_done", id: msg.id }));
