@@ -117,6 +117,14 @@
   const unlockEl = document.getElementById("unlock");
   const robot = () => window.robot; // 3D modul yüklənəndən sonra mövcud olur
 
+  // Səsi açmağa çalışır, amma ən çox 600 ms gözləyir (klik olmayanda brauzer resume()-ni sonsuz saxlayır)
+  async function tryResume() {
+    initAudio();
+    if (actx.state === "running") return true;
+    await Promise.race([actx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
+    return actx.state === "running";
+  }
+
   // ---------- Səs + analiz (robotun ağzı və başı bundan istifadə edir) ----------
   const audio = new Audio();
   let actx, analyser, freq, recDest;
@@ -237,9 +245,7 @@
     subtitleEl.classList.add("show");
     if (Math.random() < 0.5) setTimeout(() => robot()?.gesture(Math.random() < 0.6 ? "talk" : "talkL"), 300);
     try {
-      initAudio();
-      if (actx.state !== "running") await actx.resume();
-      if (actx.state !== "running") throw new Error("audio locked");
+      if (!(await tryResume())) throw new Error("audio locked");
       audio.src = msg.audio;
       await audio.play();
     } catch (err) {
@@ -365,9 +371,7 @@
 
   async function doClip(msg) {
     try {
-      initAudio();
-      if (actx.state !== "running") await actx.resume();
-      if (actx.state !== "running") { unlockEl.classList.add("show"); throw new Error("Səs bloklanıb: robot səhifəsinə bir dəfə klikləyin"); }
+      if (!(await tryResume())) { unlockEl.classList.add("show"); throw new Error("Səs bloklanıb: robot səhifəsinə bir dəfə klikləyin"); }
       const mime = recMime();
       if (!mime) throw new Error("Brauzer video yazmağı dəstəkləmir");
       recording = true;
@@ -411,7 +415,8 @@
         actionNode.connect(actx.destination);
         actionNode.connect(recDest);
       }
-      if (actx.state !== "running") await actx.resume();
+      const audioOk = await tryResume();
+      if (!audioOk) { unlockEl.classList.add("show"); actionEl.muted = true; } // səs kilidlidir: səssiz oynat
       await new Promise((resolve, reject) => {
         actionEl.oncanplay = resolve;
         actionEl.onerror = () => reject(new Error("video yüklənmədi: " + msg.video));
@@ -420,7 +425,8 @@
       });
       try { await actionEl.play(); } catch (e) { actionEl.muted = true; await actionEl.play(); }
       actionEl.classList.add("show");               // foto -> video (ilk kadr fotodur, keçid hiss olunmur)
-      await new Promise((r) => (actionEl.onended = r));
+      const maxMs = ((actionEl.duration || 15) + 3) * 1000;
+      await Promise.race([new Promise((r) => (actionEl.onended = r)), new Promise((r) => setTimeout(r, maxMs))]);
     } catch (err) {
       console.warn("Hərəkət videosu:", err);
     }

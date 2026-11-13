@@ -105,8 +105,10 @@ class Hub:
         if not text and not video:
             return
         if self.events.full():
-            log.info("Reaksiya növbəsi dolu, atıldı: %s %s", user, label)
+            log.warning("Reaksiya növbəsi dolu (%d), atıldı: %s %s", EVENT_QUEUE_SIZE, user, label)
             return
+        if not any(True for _ in self.clients):
+            log.warning("Robot səhifəsi açıq deyil, reaksiya göstərilməyəcək")
         self.events.put_nowait({"user": user, "label": label, "text": text, "video": video})
 
     async def event_worker(self) -> None:
@@ -135,9 +137,9 @@ class Hub:
         log.info("🎬 Hərəkət: %s", video)
         await self.broadcast({"type": "action", "id": action_id, "video": f"/media/actions/{video}"})
         try:
-            await asyncio.wait_for(done.wait(), timeout=90)
+            await asyncio.wait_for(done.wait(), timeout=25)
         except TimeoutError:
-            log.warning("Hərəkət videosu 90 saniyədə bitmədi (robot səhifəsi açıqdır?)")
+            log.warning("Hərəkət videosu 25 saniyədə bitmədi (robot səhifəsi açıqdır? səs üçün klikləndi?)")
         finally:
             self.action_waiters.pop(action_id, None)
 
