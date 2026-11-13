@@ -5,7 +5,7 @@
     "Rose":         { "thanks": true, "action": null },
     "Finger Heart": { "thanks": true, "action": null },
     "Lion":         { "thanks": true, "action": "dance_long" },
-    "Galaxy":       { "thanks": true, "action": "dance_x2" },
+    "Galaxy":       { "thanks": true, "action": "dance_long" },
     "Universe":     { "thanks": true, "action": "dance_short" },
     "*":            { "thanks": true, "action": null }
   },
@@ -13,7 +13,7 @@
   "follow": { "thanks": true, "action": "wave" },
 
   "actions": {
-    "dance_long":  ["dance1_long.mp4"],
+    "dance_long":  ["dance1_10s.mp4"],
     "dance_x2":    ["dance1_x2.mp4"],
     "dance_short": ["dance1.mp4"],
     "wave":  ["wave.mp4"]
