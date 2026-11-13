@@ -1,0 +1,33 @@
+{
+  "_izah": "Hədiyyə -> hərəkət cədvəli. Hədiyyə adları TikTok-dakı kimi (ingiliscə), böyük/kiçik hərf fərq etmir. '*' = cədvəldə olmayan bütün hədiyyələr. 'action' = aşağıdakı 'actions' bölməsindəki ad (null = video yoxdur). Videolar media/actions/ qovluğunda olmalıdır.",
+
+  "gifts": {
+    "Rose":         { "thanks": true, "action": null },
+    "Finger Heart": { "thanks": true, "action": null },
+    "Lion":         { "thanks": true, "action": "dance" },
+    "Galaxy":       { "thanks": true, "action": "dance" },
+    "Universe":     { "thanks": true, "action": "dance" },
+    "*":            { "thanks": true, "action": null }
+  },
+
+  "follow": { "thanks": true, "action": "wave" },
+
+  "actions": {
+    "dance": ["dance1.mp4", "dance2.mp4"],
+    "wave":  ["wave.mp4"]
+  },
+
+  "gift_thanks": [
+    "{name}, hədiyyə üçün çox sağ ol!",
+    "{name}, təşəkkür edirəm, ürəyim titrədi!",
+    "Vay, {name}, çox sağ ol!",
+    "{name}, səxavətinə görə sağ ol!"
+  ],
+
+  "follow_thanks": [
+    "{name}, xoş gəldin, izlədiyin üçün sağ ol!",
+    "{name}, ailəmizə xoş gəldin!"
+  ],
+
+  "thanks_cooldown_seconds": 20
+}

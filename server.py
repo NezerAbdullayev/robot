@@ -10,6 +10,7 @@ Hissə 2: səs (edge-tts), səs səhifədə çalınır
 Hissə 3: AI beyin (Gemini), süzgəc və növbə
 Hissə 4: TikTok canlı yayınına qoşulma
 Video studiyası: robotun cavablarını TikTok üçün MP4 videoya yazır
+Reaksiyalar: hədiyyə/follow -> təşəkkür + hərəkət videosu (actions.json)
 """
 
 import asyncio
@@ -27,6 +28,7 @@ from dotenv import load_dotenv
 
 from brain import Brain
 from tiktok import TikTokSource
+from actions import Reactions
 from tts import TTS
 
 BASE_DIR = Path(__file__).parent
@@ -35,6 +37,8 @@ WEB_DIR = BASE_DIR / "web"
 MEDIA_DIR = BASE_DIR / "media"
 TTS_DIR = MEDIA_DIR / "tts"
 CLIPS_DIR = MEDIA_DIR / "clips"
+ACTIONS_DIR = MEDIA_DIR / "actions"   # hərəkət videoları (rəqs, əl yelləmə...)
+EVENT_QUEUE_SIZE = 8  # gözləyən reaksiyalar (hədiyyə yağışında artığı atılır)
 
 # 0.0.0.0: robot səhifəsi eyni Wi-Fi-dakı telefonda da açılır (telefonla yayın üçün).
 # İdarəetmə (test paneli, TikTok, video studiyası) isə yalnız bu Mac-dən mümkündür.
@@ -62,6 +66,10 @@ class Hub:
         self.pending: dict[str, asyncio.Event] = {}
         # Eyni anda yalnız bir danışıq (canlı cavab və ya video yazısı)
         self.speak_lock = asyncio.Lock()
+        # Hədiyyə/follow reaksiyaları
+        self.reactions = Reactions(BASE_DIR / "actions.json", ACTIONS_DIR, self.brain.clean_name)
+        self.events: asyncio.Queue[dict] = asyncio.Queue(maxsize=EVENT_QUEUE_SIZE)
+        self.action_waiters: dict[str, asyncio.Event] = {}
         # Video studiyası
         self.clip_queue: asyncio.Queue[dict] = asyncio.Queue()
         self.clip_waiters: dict[str, asyncio.Future] = {}
@@ -83,11 +91,55 @@ class Hub:
 
     def on_gift(self, user: str, gift: str, count: int) -> None:
         log.info("🎁 Hədiyyə: %s -> %s x%d", user, gift, count)
-        asyncio.create_task(self.broadcast({"type": "gesture", "name": "nod"}))
+        text, video = self.reactions.for_gift(user, gift)
+        label = f"🎁 {gift}" + (f" x{count}" if count > 1 else "") + " göndərdi"
+        self._add_event(user, label, text, video)
 
     def on_follow(self, user: str) -> None:
         log.info("➕ Follow: %s", user)
+        text, video = self.reactions.for_follow(user)
+        self._add_event(user, "➕ izləməyə başladı", text, video)
+
+    def _add_event(self, user: str, label: str, text: str | None, video: str | None) -> None:
         asyncio.create_task(self.broadcast({"type": "gesture", "name": "nod"}))
+        if not text and not video:
+            return
+        if self.events.full():
+            log.info("Reaksiya növbəsi dolu, atıldı: %s %s", user, label)
+            return
+        self.events.put_nowait({"user": user, "label": label, "text": text, "video": video})
+
+    async def event_worker(self) -> None:
+        """Hədiyyə/follow reaksiyalarını oynadır. Video oynayanda şərhlər gözləyir (speak_lock)."""
+        while True:
+            ev = await self.events.get()
+            try:
+                audio = await self.tts.synthesize(ev["text"]) if ev["text"] else None
+                async with self.speak_lock:
+                    await self.broadcast({"type": "comment", "user": ev["user"], "text": ev["label"]})
+                    if audio:
+                        await self.play(ev["text"], *audio)
+                    if ev["video"]:
+                        await self.play_action(ev["video"])
+                        # AI-nin yaddaşına: robot indicə hərəkət etdi (sonrakı suallara uyğun cavab versin)
+                        self.brain.history.append(f"(Robo indicə {ev['user']} üçün {ev['video'].rsplit('.', 1)[0]} hərəkətini etdi, məsələn rəqs etdi)")
+            except Exception:
+                log.exception("Reaksiya oynadıla bilmədi")
+            await asyncio.sleep(0.3)
+
+    async def play_action(self, video: str) -> None:
+        """Hərəkət videosunu robot səhifəsində oynadır və bitənə qədər gözləyir."""
+        action_id = uuid.uuid4().hex
+        done = asyncio.Event()
+        self.action_waiters[action_id] = done
+        log.info("🎬 Hərəkət: %s", video)
+        await self.broadcast({"type": "action", "id": action_id, "video": f"/media/actions/{video}"})
+        try:
+            await asyncio.wait_for(done.wait(), timeout=90)
+        except TimeoutError:
+            log.warning("Hərəkət videosu 90 saniyədə bitmədi (robot səhifəsi açıqdır?)")
+        finally:
+            self.action_waiters.pop(action_id, None)
 
     async def broadcast(self, message: dict) -> None:
         data = json.dumps(message, ensure_ascii=False)
@@ -251,7 +303,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                 continue
             kind = data.get("type")
             # Başqa cihazlar (telefon) yalnız robot səhifəsi kimi işləyə bilər, idarə edə bilməz
-            if not local and kind in ("test_comment", "clip_request", "tiktok_connect"):
+            if not local and kind in ("test_comment", "clip_request", "tiktok_connect", "test_gift", "test_follow"):
                 continue
             if kind == "test_comment":
                 user = str(data.get("user") or "test").strip()[:40]
@@ -270,6 +322,15 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                 fut = hub.clip_waiters.get(str(data.get("id", "")))
                 if fut and not fut.done():
                     fut.set_exception(RuntimeError(str(data.get("detail") or "səhifədə xəta")))
+            elif kind == "action_done":
+                ev = hub.action_waiters.get(str(data.get("id", "")))
+                if ev:
+                    ev.set()
+            elif kind == "test_gift":
+                hub.on_gift(str(data.get("user") or "test")[:40], str(data.get("gift") or "Rose")[:40],
+                            max(1, int(data.get("count") or 1)))
+            elif kind == "test_follow":
+                hub.on_follow(str(data.get("user") or "test")[:40])
             elif kind == "tiktok_connect":
                 username = str(data.get("username") or "").strip()[:60]
                 log.info("TikTok hesabı: %s", username or "(dayandırıldı)")
@@ -331,7 +392,7 @@ def page(filename: str, local_only: bool = False):
 async def on_startup(app: web.Application) -> None:
     hub: Hub = app["hub"]
     app["tasks"] = [asyncio.create_task(hub.preparer()), asyncio.create_task(hub.speaker()),
-                    asyncio.create_task(hub.clip_worker())]
+                    asyncio.create_task(hub.clip_worker()), asyncio.create_task(hub.event_worker())]
     # .env-də TIKTOK_USERNAME varsa, avtomatik qoşul
     if os.environ.get("TIKTOK_USERNAME"):
         hub.tiktok.set_username(os.environ["TIKTOK_USERNAME"])

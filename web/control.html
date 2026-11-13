@@ -42,6 +42,22 @@
   <div id="tt-status"><span id="tt-dot"></span><span id="tt-text">Qoşulmayıb</span></div>
 </div>
 <div class="card">
+  <h1>Hədiyyə testi</h1>
+  <form id="gift" class="row">
+    <input id="g-user" value="test_user" style="flex:1">
+    <input id="g-name" value="Rose" list="gift-names" style="flex:1">
+    <input id="g-count" type="number" value="1" min="1" style="width:70px;flex:none">
+    <button type="submit">🎁 Göndər</button>
+  </form>
+  <datalist id="gift-names"><option value="Rose"><option value="Finger Heart"><option value="Lion"><option value="Galaxy"><option value="Universe"></datalist>
+  <div class="quick">
+    <button type="button" data-gift="Rose">🌹 Rose</button>
+    <button type="button" data-gift="Lion">🦁 Lion (rəqs)</button>
+    <button type="button" id="follow-btn">➕ Follow</button>
+  </div>
+  <p class="hint">Hansı hədiyyənin nə edəcəyi <b>actions.json</b> faylındadır. Hərəkət videoları <b>media/actions/</b> qovluğuna qoyulur.</p>
+</div>
+<div class="card">
   <h1>Video studiyası (TikTok üçün qısa videolar)</h1>
   <form id="studio">
     <label for="st-user">Sualı verən (ekranda görünəcək ad, robot da bu adla müraciət edəcək)</label>
@@ -97,6 +113,18 @@
     send(input.value.trim());
     input.value = "";
   };
+  // ---------- Hədiyyə testi ----------
+  function sendGift(gift) {
+    if (ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ type: "test_gift", user: document.getElementById("g-user").value || "test",
+      gift: gift || document.getElementById("g-name").value || "Rose", count: Number(document.getElementById("g-count").value) || 1 }));
+  }
+  document.getElementById("gift").onsubmit = (e) => { e.preventDefault(); sendGift(); };
+  document.querySelectorAll("[data-gift]").forEach((b) => (b.onclick = () => sendGift(b.dataset.gift)));
+  document.getElementById("follow-btn").onclick = () => {
+    if (ws.readyState === 1) ws.send(JSON.stringify({ type: "test_follow", user: document.getElementById("g-user").value || "test" }));
+  };
+
   // ---------- Video studiyası ----------
   const CLIP_STATES = {
     queued: "⏳ Növbədə", thinking: "🤔 AI cavab hazırlayır…", recording: "🔴 Yazılır…",
@@ -150,7 +178,7 @@
     if (ws.readyState === 1) ws.send(JSON.stringify({ type: "tiktok_connect", username: "" }));
   };
 
-  document.querySelectorAll(".quick button").forEach(b => b.onclick = () => send(b.dataset.t));
+  document.querySelectorAll(".quick button[data-t]").forEach(b => b.onclick = () => send(b.dataset.t));
 </script>
 </body>
 </html>

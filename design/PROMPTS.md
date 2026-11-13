@@ -57,3 +57,38 @@ media/talking.mp4
 media/talking2.mp4   (istəyə görə)
 ```
 Seçdiyin şəkli də `design/robot.png` kimi saxla.
+
+---
+
+# Hərəkət videoları (hədiyyə reaksiyaları)
+
+Bu videolar **bir dəfə** hazırlanır və `media/actions/` qovluğuna qoyulur. Sonra hər uyğun hədiyyədə yenidən oynadılır.
+
+## Ən vacib qayda: başlanğıc və son kadr
+- Alət: **Kling AI** və ya **Hailuo AI** (image-to-video, "start frame + end frame" funksiyası).
+- **Start frame** və **End frame** üçün eyni şəkli yüklə: `web/assets/android_base.jpg`.
+  Belə olanda video fotodan başlayır və fotoda bitir, keçid hiss olunmur.
+- Ölçü: **9:16**, uzunluq 5–10 saniyə.
+- Fayl adları `actions.json`-dakı adlarla eyni olmalıdır.
+
+## dance1.mp4 / dance2.mp4 (rəqs)
+```
+Static camera on a tripod, no camera movement. The android robot sitting at the wooden table
+stands up from the chair, does a short fun robotic dance in front of the table (smooth robot moves,
+arm waves, head bobs, a little spin), then sits back down on the chair in exactly the same pose
+as the first frame and looks at the camera. Same room, same lighting, realistic, photoreal,
+no text. Ends exactly like the first frame.
+```
+Dəyişiklik üçün ikinci variantda rəqs hissəsini dəyiş, məsələn: `does a disco dance with pointing arms`.
+
+## wave.mp4 (əl yelləmə, follow üçün)
+```
+Static camera on a tripod, no camera movement. The android robot sitting at the wooden table
+smiles, raises its right hand and waves at the camera in a friendly way for two seconds, then puts
+the hand back on the table in exactly the same pose as the first frame. Same room, same lighting,
+realistic, photoreal, no text. Ends exactly like the first frame.
+```
+
+## Musiqi
+Alətin özü musiqi əlavə edirsə, ola bilər. Özün əlavə edirsənsə, yalnız **müəllif hüquqsuz**
+(royalty-free) musiqi işlət. Məşhur mahnılar TikTok-da yayının səsini kəsdirə bilər.
