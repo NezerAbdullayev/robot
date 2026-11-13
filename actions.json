@@ -4,16 +4,18 @@
   "gifts": {
     "Rose":         { "thanks": true, "action": null },
     "Finger Heart": { "thanks": true, "action": null },
-    "Lion":         { "thanks": true, "action": "dance" },
-    "Galaxy":       { "thanks": true, "action": "dance" },
-    "Universe":     { "thanks": true, "action": "dance" },
+    "Lion":         { "thanks": true, "action": "dance_long" },
+    "Galaxy":       { "thanks": true, "action": "dance_x2" },
+    "Universe":     { "thanks": true, "action": "dance_short" },
     "*":            { "thanks": true, "action": null }
   },
 
   "follow": { "thanks": true, "action": "wave" },
 
   "actions": {
-    "dance": ["dance1_long.mp4"],
+    "dance_long":  ["dance1_long.mp4"],
+    "dance_x2":    ["dance1_x2.mp4"],
+    "dance_short": ["dance1.mp4"],
     "wave":  ["wave.mp4"]
   },
 
