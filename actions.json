@@ -10,7 +10,7 @@
     { "min_coins": 30, "thanks": true, "action": "dance_long" }
   ],
 
-  "follow": { "thanks": true, "action": "wave" },
+  "follow": { "thanks": true, "action": null },
 
   "actions": {
     "dance_long":  ["dance1_10s.mp4"],

@@ -22,6 +22,7 @@ class Reactions:
         self.videos_dir.mkdir(parents=True, exist_ok=True)
         self.last_thanks: dict[str, float] = {}
         self.last_video: dict[str, str] = {}
+        self.warned: set[str] = set()
         self.config: dict = {}
         self.mtime = 0.0
         self.reload()
@@ -54,7 +55,9 @@ class Reactions:
             return None
         files = [f for f in self.config.get("actions", {}).get(action, []) if (self.videos_dir / f).exists()]
         if not files:
-            log.info("'%s' hərəkəti üçün video yoxdur (media/actions/ qovluğuna qoyun)", action)
+            if action not in self.warned:  # eyni xəbərdarlığı log-da təkrarlamırıq
+                self.warned.add(action)
+                log.info("'%s' hərəkəti üçün video yoxdur (media/actions/ qovluğuna qoyun), yalnız təşəkkür ediləcək", action)
             return None
         choices = [f for f in files if f != self.last_video.get(action)] or files
         chosen = random.choice(choices)
