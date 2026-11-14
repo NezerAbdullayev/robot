@@ -76,6 +76,18 @@
   #status { position: absolute; right: 8px; bottom: 8px; width: 10px; height: 10px; border-radius: 50%; background: #da3633; }
   #status.ok { display: none; } /* yalnız bağlantı kəsiləndə (qırmızı) görünür */
 </style>
+<script>
+  // Telefonda baş verən xətaları Mac-dəki server log-una göndərir (diaqnoz üçün)
+  window.clientLog = function (msg) {
+    try { fetch("/client_log", { method: "POST", body: String(msg).slice(0, 500), keepalive: true }); } catch (e) {}
+  };
+  addEventListener("error", (e) => clientLog("XƏTA: " + e.message + " @ " + (e.filename || "").split("/").pop() + ":" + e.lineno));
+  addEventListener("unhandledrejection", (e) => clientLog("XƏTA (promise): " + (e.reason && (e.reason.message || e.reason))));
+  addEventListener("load", () => {
+    const gl2 = !!document.createElement("canvas").getContext("webgl2");
+    clientLog("Səhifə açıldı | ekran " + innerWidth + "x" + innerHeight + " | WebGL2: " + (gl2 ? "var" : "YOXDUR") + " | " + navigator.userAgent);
+  });
+</script>
 <script type="importmap">
   { "imports": { "three": "/static/vendor/three.module.min.js", "three/addons/": "/static/vendor/jsm/" } }
 </script>
@@ -109,8 +121,18 @@
     const { startRobot } = await import("/static/robot3d.js");
     startRobot(document.getElementById("robot3d"), stage);
   } else {
-    const { startAndroid } = await import("/static/android.js");
-    await startAndroid(document.getElementById("android"), stage);
+    try {
+      const { startAndroid } = await import("/static/android.js");
+      await startAndroid(document.getElementById("android"), stage);
+      window.clientLog?.("Android robotu işə düşdü ✓");
+    } catch (err) {
+      // Qrafika (WebGL2) işləmirsə: ağ/qara ekran əvəzinə robotun fotosu görünsün
+      window.clientLog?.("Android robotu başlamadı, foto göstərilir: " + (err && err.message || err));
+      const room = document.getElementById("room");
+      room.src = "/static/assets/android_base.jpg";
+      room.hidden = false;
+      document.getElementById("android").hidden = true;
+    }
   }
 </script>
 

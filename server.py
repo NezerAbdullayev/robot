@@ -365,6 +365,14 @@ async def convert_to_mp4(raw: Path) -> Path:
     return out
 
 
+async def client_log(request: web.Request) -> web.Response:
+    """Robot səhifəsindən (məsələn telefondan) gələn diaqnoz mesajlarını log-a yazır."""
+    text = (await request.text())[:500].replace("\n", " ")
+    who = "Mac" if is_local(request) else f"📱 {request.remote}"
+    log.info("[%s] %s", who, text)
+    return web.Response(text="ok")
+
+
 async def clip_upload(request: web.Request) -> web.Response:
     """Robot səhifəsi yazdığı videonu bura göndərir."""
     hub: Hub = request.app["hub"]
@@ -415,6 +423,7 @@ def create_app() -> web.Application:
     app.router.add_get("/control", page("control.html", local_only=True))
     app.router.add_get("/ws", ws_handler)
     app.router.add_post("/clip_upload", clip_upload)
+    app.router.add_post("/client_log", client_log)
     app.router.add_static("/media/", MEDIA_DIR)
     app.router.add_static("/static/", WEB_DIR)
     app.on_startup.append(on_startup)

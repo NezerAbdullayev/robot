@@ -51,25 +51,31 @@ class TikTokSource:
         self.task: asyncio.Task | None = None
         self.client: TikTokLiveClient | None = None
         self.connected_at: float | None = None
+        self.generation = 0  # hər hesab dəyişikliyində artır; köhnə bağlantılar özünü dayandırır
 
     def set_username(self, username: str | None) -> None:
         """Hesabı dəyişir (boş verilərsə, bağlantını dayandırır)."""
         username = (username or "").strip().lstrip("@")
+        # Eyni hesaba artıq qoşulubsa (və ya qoşulursa), ikinci bağlantı açma
+        if username and username == self.username and self.task and not self.task.done():
+            log.info("TikTok: @%s artıq izlənilir, ikinci bağlantı açılmır", username)
+            return
+        self.generation += 1
         if self.task:
             self.task.cancel()  # _run öz bağlantısını təmiz bağlayır
             self.task = None
         self.username = username or None
         if self.username:
-            self.task = asyncio.create_task(self._run(self.username))
+            self.task = asyncio.create_task(self._run(self.username, self.generation))
         else:
             self.on_status("stopped", "")
 
-    async def _run(self, username: str) -> None:
-        while True:
+    async def _run(self, username: str, gen: int) -> None:
+        while gen == self.generation:  # hesab dəyişibsə, bu köhnə dövr dayanır
             client = TikTokLiveClient(unique_id=f"@{username}")
             self.client = client
             self.connected_at = None
-            self._register(client, username)
+            self._register(client, username, gen)
             try:
                 self.on_status("connecting", username)
                 if not await client.is_live():
@@ -80,6 +86,9 @@ class TikTokSource:
                 # Qeyd: client.connect() ləğv ediləndə bütün event loop-u dayandırmağa çalışır,
                 # ona görə start() + disconnect() ilə özümüz idarə edirik.
                 task = await client.start()
+                if gen != self.generation:  # bu arada hesab dəyişdirilib
+                    await self._close(client)
+                    return
                 await asyncio.shield(task)  # bağlantı kəsilənə qədər gözləyir
                 log.info("TikTok: @%s bağlantısı bitdi", username)
                 await asyncio.sleep(3)
@@ -87,6 +96,9 @@ class TikTokSource:
                 await self._close(client)
                 raise
             except Exception as err:
+                if gen != self.generation:  # ləğv edilmiş köhnə dövr: səssizcə bitir
+                    await self._close(client)
+                    return
                 self.on_status("error", f"{type(err).__name__}: {str(err)[:120]}")
                 log.warning("TikTok xətası (@%s): %s: %s", username, type(err).__name__, str(err)[:200])
                 await self._close(client)
@@ -102,26 +114,34 @@ class TikTokSource:
         except Exception as err:
             log.debug("TikTok disconnect: %s", err)
 
-    def _register(self, client: TikTokLiveClient, username: str) -> None:
+    def _register(self, client: TikTokLiveClient, username: str, gen: int) -> None:
+        current = lambda: gen == self.generation  # köhnə bağlantının hadisələri nəzərə alınmır
+
         @client.on(ConnectEvent)
         async def _connected(event: ConnectEvent) -> None:
+            if not current():
+                return
             self.connected_at = time.monotonic()
             log.info("TikTok: @%s canlı yayınına qoşuldu", username)
             self.on_status("live", username)
 
         @client.on(DisconnectEvent)
         async def _disconnected(event: DisconnectEvent) -> None:
+            if not current():
+                return
             log.info("TikTok: @%s bağlantısı kəsildi", username)
             self.on_status("offline", username)
 
         @client.on(LiveEndEvent)
         async def _ended(event: LiveEndEvent) -> None:
+            if not current():
+                return
             log.info("TikTok: @%s canlı yayını bitdi", username)
             self.on_status("offline", username)
 
         @client.on(CommentEvent)
         async def _comment(event: CommentEvent) -> None:
-            if self.connected_at is None or time.monotonic() - self.connected_at < HISTORY_SKIP:
+            if not current() or self.connected_at is None or time.monotonic() - self.connected_at < HISTORY_SKIP:
                 return  # qoşulma anında gələn köhnə şərhlər (TikTok tarixçəni göndərir)
             text = (event.comment or "").strip()
             if text:
@@ -129,6 +149,8 @@ class TikTokSource:
 
         @client.on(GiftEvent)
         async def _gift(event: GiftEvent) -> None:
+            if not current():
+                return
             # Seriyalı hədiyyələr (məsələn 10 dəfə Rose) seriya bitəndə bir dəfə sayılır
             gift = event.gift
             if gift is not None and getattr(gift, "streakable", False) and event.streaking:
@@ -139,4 +161,5 @@ class TikTokSource:
 
         @client.on(FollowEvent)
         async def _follow(event: FollowEvent) -> None:
-            self.on_follow(display_name(event.user))
+            if current():
+                self.on_follow(display_name(event.user))
