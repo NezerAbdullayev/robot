@@ -11,6 +11,7 @@ Hissə 3: AI beyin (Gemini), süzgəc və növbə
 Hissə 4: TikTok canlı yayınına qoşulma
 Video studiyası: robotun cavablarını TikTok üçün MP4 videoya yazır
 Reaksiyalar: hədiyyə/follow -> təşəkkür + hərəkət videosu (actions.json)
+Salamlama: şərh olmayanda yayına qoşulanları adı ilə salamlayır
 """
 
 import asyncio
@@ -73,6 +74,11 @@ class Hub:
         # Video studiyası
         self.clip_queue: asyncio.Queue[dict] = asyncio.Queue()
         self.clip_waiters: dict[str, asyncio.Future] = {}
+        # Salamlama: yayına qoşulanlar (ən təzələri) və son danışıq vaxtı
+        self.joins: list[tuple[str, float]] = []
+        self.greeted: dict[str, float] = {}
+        self.last_activity = time.time()
+        self.preparing = 0  # hazırda AI cavabı hazırlanan şərh sayı
         # TikTok
         self.tiktok_status = {"type": "tiktok_status", "state": "stopped", "detail": "", "username": ""}
         self.tiktok = TikTokSource(
@@ -80,6 +86,7 @@ class Hub:
             on_gift=self.on_gift,
             on_follow=self.on_follow,
             on_status=self.set_tiktok_status,
+            on_join=self.on_join,
         )
 
     # ---------- TikTok hadisələri ----------
@@ -95,6 +102,51 @@ class Hub:
         text, video = self.reactions.for_gift(user, gift, total)
         label = f"🎁 {gift}" + (f" x{count}" if count > 1 else "") + " göndərdi"
         self._add_event(user, label, text, video)
+
+    def on_join(self, user: str) -> None:
+        """İzləyici yayına qoşuldu: salamlama siyahısına əlavə et (yalnız sakitlikdə salamlanacaq)."""
+        self.joins = [(u, t) for u, t in self.joins if u != user][-9:] + [(user, time.time())]
+
+    def is_busy(self) -> bool:
+        return (self.speak_lock.locked() or self.preparing > 0 or not self.queue.empty()
+                or not self.ready.empty() or not self.events.empty())
+
+    async def greeter(self) -> None:
+        """Şərh, hədiyyə və danışıq olmayanda yayına təzə qoşulanı adı ilə salamlayır."""
+        while True:
+            await asyncio.sleep(1)
+            cfg = self.reactions.join_settings()
+            if not cfg.get("greet", True) or not self.joins:
+                continue
+            if self.is_busy():
+                self.last_activity = time.time()
+                continue
+            if time.time() - self.last_activity < float(cfg.get("idle_seconds", 5)):
+                continue
+            now = time.time()
+            repeat = float(cfg.get("repeat_minutes", 10)) * 60
+            # ən təzə qoşulan, son 60 saniyədə gəlmiş və yaxın vaxtda salamlanmamış
+            fresh = [(u, t) for u, t in self.joins if now - t < 60 and now - self.greeted.get(u, 0) > repeat]
+            self.joins = [(u, t) for u, t in self.joins if now - t < 60]
+            if not fresh:
+                continue
+            user = fresh[-1][0]
+            self.joins = [(u, t) for u, t in self.joins if u != user]
+            text = self.reactions.greeting_for(user)
+            self.greeted[user] = now
+            if not text:
+                continue
+            try:
+                filename, duration = await self.tts.synthesize(text)
+                if self.is_busy():  # bu arada şərh gəldisə, salamlamanı burax
+                    continue
+                async with self.speak_lock:
+                    log.info("👋 Salamlama: %s", user)
+                    await self.play(text, filename, duration, {"user": user, "text": "👋 yayına qoşuldu"})
+                self.brain.history.append(f"(Robo yayına qoşulan {user}-i salamladı: {text})")
+            except Exception:
+                log.exception("Salamlama alınmadı")
+            self.last_activity = time.time()
 
     def on_follow(self, user: str) -> None:
         log.info("➕ Follow: %s", user)
@@ -171,6 +223,7 @@ class Hub:
                 log.info("Köhnə şərh keçildi: %s", comment["text"])
                 continue
             log.info("Şərh: %s: %s", comment["user"], comment["text"])
+            self.preparing += 1
             try:
                 reply = await self.brain.reply(comment["user"], comment["text"])
                 if not reply:
@@ -180,6 +233,8 @@ class Hub:
                 await self.ready.put((comment, reply, filename, duration))
             except Exception:
                 log.exception("Cavab hazırlana bilmədi")
+            finally:
+                self.preparing -= 1
 
     async def speaker(self) -> None:
         """Hazır cavabları bir-bir robota dedirir."""
@@ -306,7 +361,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                 continue
             kind = data.get("type")
             # Başqa cihazlar (telefon) yalnız robot səhifəsi kimi işləyə bilər, idarə edə bilməz
-            if not local and kind in ("test_comment", "clip_request", "tiktok_connect", "test_gift", "test_follow"):
+            if not local and kind in ("test_comment", "clip_request", "tiktok_connect", "test_gift", "test_follow", "test_join"):
                 continue
             if kind == "test_comment":
                 user = str(data.get("user") or "test").strip()[:40]
@@ -334,6 +389,8 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                             max(1, int(data.get("count") or 1)), max(0, int(data.get("coins") or 0)))
             elif kind == "test_follow":
                 hub.on_follow(str(data.get("user") or "test")[:40])
+            elif kind == "test_join":
+                hub.on_join(str(data.get("user") or "test")[:40])
             elif kind == "tiktok_connect":
                 username = str(data.get("username") or "").strip()[:60]
                 log.info("TikTok hesabı: %s", username or "(dayandırıldı)")
@@ -403,7 +460,8 @@ def page(filename: str, local_only: bool = False):
 async def on_startup(app: web.Application) -> None:
     hub: Hub = app["hub"]
     app["tasks"] = [asyncio.create_task(hub.preparer()), asyncio.create_task(hub.speaker()),
-                    asyncio.create_task(hub.clip_worker()), asyncio.create_task(hub.event_worker())]
+                    asyncio.create_task(hub.clip_worker()), asyncio.create_task(hub.event_worker()),
+                    asyncio.create_task(hub.greeter())]
     # .env-də TIKTOK_USERNAME varsa, avtomatik qoşul
     if os.environ.get("TIKTOK_USERNAME"):
         hub.tiktok.set_username(os.environ["TIKTOK_USERNAME"])

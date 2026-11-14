@@ -17,6 +17,7 @@ from TikTokLive.events import (
     DisconnectEvent,
     FollowEvent,
     GiftEvent,
+    JoinEvent,
     LiveEndEvent,
 )
 
@@ -39,11 +40,14 @@ class TikTokSource:
     on_comment(name, text)         - hər şərh üçün
     on_gift(name, gift, count, coins) - hədiyyə (seriya bitəndə bir dəfə; coins = bir ədədin dəyəri)
     on_follow(name)                - yeni follow
+    on_join(name)                  - izləyici yayına qoşuldu
     on_status(state, detail)       - "connecting" | "live" | "offline" | "error" | "stopped"
     """
 
-    def __init__(self, on_comment: Callable, on_gift: Callable, on_follow: Callable, on_status: Callable) -> None:
+    def __init__(self, on_comment: Callable, on_gift: Callable, on_follow: Callable, on_status: Callable,
+                 on_join: Callable | None = None) -> None:
         self.on_comment = on_comment
+        self.on_join = on_join
         self.on_gift = on_gift
         self.on_follow = on_follow
         self.on_status = on_status
@@ -158,6 +162,14 @@ class TikTokSource:
             name = getattr(gift, "name", "") or "hədiyyə"
             coins = int(getattr(gift, "diamond_count", 0) or 0)  # bir ədədin coin dəyəri
             self.on_gift(display_name(event.user), name, max(1, event.repeat_count or 1), coins)
+
+        @client.on(JoinEvent)
+        async def _join(event: JoinEvent) -> None:
+            if not current() or self.on_join is None:
+                return
+            if self.connected_at is None or time.monotonic() - self.connected_at < HISTORY_SKIP:
+                return
+            self.on_join(display_name(event.user))
 
         @client.on(FollowEvent)
         async def _follow(event: FollowEvent) -> None:

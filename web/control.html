@@ -57,6 +57,7 @@
     <button type="button" data-gift="Doughnut" data-coins="30">🍩 Doughnut (30) → 10 san</button>
     <button type="button" data-gift="Lion" data-coins="29999">🦁 Lion (29999) → 10 san</button>
     <button type="button" id="follow-btn">➕ Follow</button>
+    <button type="button" id="join-btn">👋 Yayına qoşuldu</button>
   </div>
   <p class="hint">Qaydalar <b>actions.json</b> faylındadır: Rose → 5 saniyəlik video, <b>30 coin və üzəri</b> (say × coin) → 10 saniyəlik video, qalanları → yalnız təşəkkür.</p>
 </div>
@@ -126,6 +127,9 @@
   }
   document.getElementById("gift").onsubmit = (e) => { e.preventDefault(); sendGift(); };
   document.querySelectorAll("[data-gift]").forEach((b) => (b.onclick = () => sendGift(b.dataset.gift, Number(b.dataset.coins))));
+  document.getElementById("join-btn").onclick = () => {
+    if (ws.readyState === 1) ws.send(JSON.stringify({ type: "test_join", user: document.getElementById("g-user").value || "test" }));
+  };
   document.getElementById("follow-btn").onclick = () => {
     if (ws.readyState === 1) ws.send(JSON.stringify({ type: "test_follow", user: document.getElementById("g-user").value || "test" }));
   };

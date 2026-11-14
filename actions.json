@@ -1,34 +1,58 @@
 {
-  "_izah": "Qaydaların sırası: 1) 'value_rules': hədiyyənin ümumi dəyəri (say x coin) bu həddən çoxdursa  2) 'gifts' bölməsində adı yazılan hədiyyə  3) 'gifts' içindəki '*' (qalan hamısı). 'action' = 'actions' bölməsindəki ad, null = video yoxdur. Videolar media/actions/ qovluğundadır. Faylı dəyişəndə serveri yenidən başlatmaq lazım deyil.",
-
+  "_izah": "Qaydaların sırası: 1) 'value_rules': hədiyyənin ümumi dəyəri (say x coin) bu həddən çoxdursa  2) 'gifts' bölməsində adı yazılan hədiyyə  3) 'gifts' içindəki '*' (qalan hamısı). 'action' = 'actions' bölməsindəki ad, null = video yoxdur. Videolar media/actions/ qovluğundadır. Faylı dəyişəndə serveri yenidən başlatmaq lazım deyil. 'join': yayına qoşulanları salamlama (yalnız şərh olmayanda; idle_seconds = nə qədər sakitlikdən sonra; repeat_minutes = eyni adamı yenidən salamlamazdan əvvəl).",
   "gifts": {
-    "Rose": { "thanks": true, "action": "dance_short" },
-    "*":    { "thanks": true, "action": null }
+    "Rose": {
+      "thanks": true,
+      "action": "dance_short"
+    },
+    "*": {
+      "thanks": true,
+      "action": null
+    }
   },
-
   "value_rules": [
-    { "min_coins": 30, "thanks": true, "action": "dance_long" }
+    {
+      "min_coins": 30,
+      "thanks": true,
+      "action": "dance_long"
+    }
   ],
-
-  "follow": { "thanks": true, "action": null },
-
-  "actions": {
-    "dance_long":  ["dance1_10s.mp4"],
-    "dance_short": ["dance1.mp4"],
-    "wave":        ["wave.mp4"]
+  "follow": {
+    "thanks": true,
+    "action": null
   },
-
+  "actions": {
+    "dance_long": [
+      "dance1_10s.mp4"
+    ],
+    "dance_short": [
+      "dance1.mp4"
+    ],
+    "wave": [
+      "wave.mp4"
+    ]
+  },
   "gift_thanks": [
     "{name}, hədiyyə üçün çox sağ ol!",
     "{name}, təşəkkür edirəm, ürəyim titrədi!",
     "Vay, {name}, çox sağ ol!",
     "{name}, səxavətinə görə sağ ol!"
   ],
-
   "follow_thanks": [
     "{name}, xoş gəldin, izlədiyin üçün sağ ol!",
     "{name}, ailəmizə xoş gəldin!"
   ],
-
-  "thanks_cooldown_seconds": 20
+  "thanks_cooldown_seconds": 20,
+  "join": {
+    "greet": true,
+    "idle_seconds": 5,
+    "repeat_minutes": 10
+  },
+  "join_greetings": [
+    "Salam {name}, xoş gəldin! Halın-əhvalın necədir?",
+    "{name}, xoş gördük! Necəsən, nə var nə yox?",
+    "Vay, {name} gəldi! Xoş gəldin, necəsən?",
+    "{name}, xoş gəldin! Mənə istədiyin sualı verə bilərsən.",
+    "Salam {name}! Günün necə keçir?"
+  ]
 }

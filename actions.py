@@ -86,6 +86,18 @@ class Reactions:
         text = self._thanks_text("gift_thanks", user) if rule.get("thanks", True) else None
         return text, self.pick_video(rule.get("action"))
 
+    def join_settings(self) -> dict:
+        self.reload()
+        return {"greet": True, "idle_seconds": 5, "repeat_minutes": 10, **self.config.get("join", {})}
+
+    def greeting_for(self, user: str) -> str | None:
+        """Yayına qoşulan izləyici üçün salamlama (ad oxunmursa None)."""
+        name = self.clean_name(user)
+        if not name:
+            return None
+        templates = self.config.get("join_greetings", []) or ["Salam {name}, xoş gəldin! Necəsən?"]
+        return random.choice(templates).replace("{name}", name)
+
     def for_follow(self, user: str) -> tuple[str | None, str | None]:
         self.reload()
         rule = self.config.get("follow", {"thanks": True, "action": None})
